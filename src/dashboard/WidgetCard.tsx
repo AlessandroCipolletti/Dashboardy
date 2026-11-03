@@ -14,27 +14,17 @@ type WidgetCardProps = {
   resizeLocked: boolean
   axes: { bl: ResizeAxes; br: ResizeAxes }
   edgeLimit?: { left: boolean; right: boolean; bottom: boolean }
+  leaving?: boolean
   style: CSSProperties
 }
 
 type ResizeAxes = { width: boolean; height: boolean }
 
-function HandleIcon({
-  corner,
-  width,
-  height,
-}: {
-  corner: Corner
-  width: boolean
-  height: boolean
-}) {
-  const both =
+function HandleIcon({ corner }: { corner: Corner }) {
+  const path =
     corner === "br"
       ? "M46 22 V36 A12 12 0 0 1 34 48 H20"
       : "M6 22 V36 A12 12 0 0 0 18 48 H32"
-  const vertical = corner === "br" ? "M46 14 V48" : "M6 14 V48"
-  const horizontal = corner === "br" ? "M14 48 H48" : "M4 48 H38"
-  const path = width && height ? both : width ? horizontal : vertical
   return (
     <svg viewBox="0 0 52 52" aria-hidden="true">
       <path d={path} />
@@ -88,21 +78,16 @@ function ResizeHandle({
   width: boolean
   height: boolean
 }) {
-  const axis = locked ? "is-locked" : width && height ? "" : width ? "is-x" : "is-y"
+  if (locked || !width || !height) return null
   const side = corner === "bl" ? "sinistra" : "destra"
   return (
     <button
       type="button"
-      className={["handle", `handle-${corner}`, axis].filter(Boolean).join(" ")}
+      className={["handle", `handle-${corner}`].join(" ")}
       data-corner={corner}
-      data-locked={locked ? "true" : undefined}
-      aria-label={
-        locked
-          ? `${name} ha una sola dimensione`
-          : `Ridimensiona ${name} dall'angolo in basso a ${side}`
-      }
+      aria-label={`Ridimensiona ${name} dall'angolo in basso a ${side}`}
     >
-      <HandleIcon corner={corner} width={locked || width} height={locked || height} />
+      <HandleIcon corner={corner} />
     </button>
   )
 }
@@ -119,6 +104,7 @@ export function WidgetCard({
   resizeLocked,
   axes,
   edgeLimit,
+  leaving,
   style,
 }: WidgetCardProps) {
   const className = [
@@ -127,6 +113,7 @@ export function WidgetCard({
     resizing ? "is-resizing" : "",
     showHandles ? "is-chrome" : "",
     selected ? "is-selected" : "",
+    leaving ? "is-leaving" : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -136,6 +123,8 @@ export function WidgetCard({
       className={className}
       data-widget-id={id}
       data-type={name}
+      inert={leaving || undefined}
+      aria-hidden={leaving || undefined}
       style={{ ...style, boxShadow: edgeShadow(edgeLimit) }}
     >
       <div className="belly" style={{ background: gray }}>

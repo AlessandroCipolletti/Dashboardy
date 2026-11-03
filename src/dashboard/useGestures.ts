@@ -24,6 +24,7 @@ const HANDLE_STILL_MS = 500
 const PLUS_STILL_MS = 2000
 const MOVE_CANCEL_PX = 10
 const STILL_PX = 3
+const SCROLL_EDGE_PX = 64
 
 type DragMode = {
   type: "drag"
@@ -215,6 +216,7 @@ export function useGestures(input: {
       if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
       layoutTimer.current = null
       const placement = placementsRef.current.get(id)
+      latestPointer.current = { x: clientX, y: clientY }
       updateMode({
         type: "drag",
         id,
@@ -229,6 +231,7 @@ export function useGestures(input: {
         height,
         slot: { x: placement?.x ?? 0, y: placement?.y ?? 0 },
       })
+      kickEdgeScroll()
     }
 
     const startResize = (
@@ -614,6 +617,40 @@ export function useGestures(input: {
       layoutGate.current = 0
     }
 
+    let scrollFrame: number | null = null
+    const stopEdgeScroll = () => {
+      if (scrollFrame === null) return
+      window.cancelAnimationFrame(scrollFrame)
+      scrollFrame = null
+    }
+    const edgeScroll = () => {
+      scrollFrame = null
+      const active = modeRef.current
+      if (active.type !== "drag") return
+      const pointerY = latestPointer.current.y
+      const intoBottom = pointerY - (window.innerHeight - SCROLL_EDGE_PX)
+      const intoTop = SCROLL_EDGE_PX - pointerY
+      const roomBelow =
+        document.documentElement.scrollHeight - window.innerHeight - window.scrollY
+      const roomAbove = window.scrollY
+      let delta = 0
+      if (intoBottom > 0 && roomBelow > 0.5 && intoBottom >= intoTop) {
+        const depth = Math.min(1, intoBottom / SCROLL_EDGE_PX)
+        delta = Math.min(roomBelow, 3 + depth * 13)
+      } else if (intoTop > 0 && roomAbove > 0.5) {
+        const depth = Math.min(1, intoTop / SCROLL_EDGE_PX)
+        delta = -Math.min(roomAbove, 3 + depth * 13)
+      }
+      if (delta === 0) return
+      window.scrollBy(0, delta)
+      scheduleLayout()
+      scrollFrame = window.requestAnimationFrame(edgeScroll)
+    }
+    const kickEdgeScroll = () => {
+      if (scrollFrame !== null) return
+      scrollFrame = window.requestAnimationFrame(edgeScroll)
+    }
+
     const onPointerMove = (event: PointerEvent) => {
       const pending = pendingRef.current
       if (pending?.kind === "press" && pending.pointerId === event.pointerId) {
@@ -663,6 +700,7 @@ export function useGestures(input: {
         latestPointer.current = { x: event.clientX, y: event.clientY }
         updateMode({ ...active, clientX: event.clientX, clientY: event.clientY })
         scheduleLayout()
+        kickEdgeScroll()
         return
       }
       trackMouse(event)
@@ -735,6 +773,7 @@ export function useGestures(input: {
       }
 
       updateMode({ type: "idle" })
+      stopEdgeScroll()
       if (active.type === "drag") setHandlesFor(null)
       if (active.type === "resize") {
         setSelected(null)
@@ -764,6 +803,7 @@ export function useGestures(input: {
     return () => {
       clearHold()
       clearLayoutTimer()
+      stopEdgeScroll()
       clearHandleTimer()
       clearPlusTimer()
       canvas.removeEventListener("pointerdown", onPointerDown)

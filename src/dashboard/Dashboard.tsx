@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react"
 import { canvasHeight, cellRect, computeGrid } from "../grid/metrics"
 import type { Placement } from "../grid/pack"
 import { useDashboardDocument } from "../persistence/useDashboardDocument"
@@ -21,6 +28,26 @@ import {
 } from "./layout"
 import { useGestures } from "./useGestures"
 import { WidgetCard } from "./WidgetCard"
+
+const EXIT_FADE_MS = 300
+
+type ExitSnapshot = {
+  id: string
+  name: string
+  gray: string
+  label: string
+  lifting: boolean
+  resizing: boolean
+  showHandles: boolean
+  selected: boolean
+  resizeLocked: boolean
+  axes: {
+    bl: { width: boolean; height: boolean }
+    br: { width: boolean; height: boolean }
+  }
+  edgeLimit?: { left: boolean; right: boolean; bottom: boolean }
+  style: CSSProperties
+}
 
 function useViewport(): { width: number; height: number } {
   const [size, setSize] = useState(() => ({
@@ -174,6 +201,8 @@ export function Dashboard() {
     new Map<string, { x: number; y: number; w: number; h: number }>(),
   )
   const previousMetrics = useRef(metrics)
+  const painted = useRef(new Map<string, ExitSnapshot>())
+  const exitTimers = useRef(new Map<string, number>())
   const liveGhost = (() => {
     const id = drag?.id ?? resize?.id
     if (!id) return null
@@ -183,6 +212,7 @@ export function Dashboard() {
   })()
   const [heldGhost, setHeldGhost] = useState<typeof liveGhost>(null)
   const [ghostFading, setGhostFading] = useState(false)
+  const [leaving, setLeaving] = useState<ExitSnapshot[]>([])
   const ghostMatches =
     !!liveGhost &&
     !!heldGhost &&
@@ -207,6 +237,37 @@ export function Dashboard() {
     return () => window.clearTimeout(timer)
   }, [ghostFading])
 
+  useEffect(() => {
+    for (const card of leaving) {
+      if (exitTimers.current.has(card.id)) continue
+      const timer = window.setTimeout(() => {
+        exitTimers.current.delete(card.id)
+        setLeaving((current) => current.filter((item) => item.id !== card.id))
+      }, EXIT_FADE_MS)
+      exitTimers.current.set(card.id, timer)
+    }
+  }, [leaving])
+
+  useEffect(() => {
+    const timers = exitTimers.current
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer)
+    }
+  }, [])
+
+  const widgetKey = document.widgets.map((widget) => widget.id).join("\0")
+
+  useLayoutEffect(() => {
+    const ids = new Set(widgetKey.length === 0 ? [] : widgetKey.split("\0"))
+    const removed = [...painted.current.values()].filter((card) => !ids.has(card.id))
+    if (removed.length === 0) return
+    setLeaving((current) => {
+      const known = new Set(current.map((item) => item.id))
+      const extra = removed.filter((card) => !known.has(card.id))
+      return extra.length === 0 ? current : [...current, ...extra]
+    })
+  }, [widgetKey])
+
   useLayoutEffect(() => {
     metricsRef.current = metrics
     widgetsRef.current = adapted
@@ -224,6 +285,17 @@ export function Dashboard() {
       const id = node.dataset.widgetId
       if (!id) return
       seen.add(id)
+      if (node.classList.contains("is-leaving")) {
+        if (node.dataset.leaving !== "1") {
+          node.dataset.leaving = "1"
+          node.animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: EXIT_FADE_MS,
+            easing: "ease",
+            fill: "forwards",
+          })
+        }
+        return
+      }
       const cell = placements.get(id)
       const previousCell = previousCells.current.get(id)
       const cellChanged =
@@ -294,6 +366,72 @@ export function Dashboard() {
   })
 
   const widgets = [...document.widgets].sort((a, b) => a.id.localeCompare(b.id))
+  const documentIds = new Set(widgets.map((widget) => widget.id))
+  const liveCards: ExitSnapshot[] = []
+  for (const widget of widgets) {
+    const type = widgetType(widget.type)
+    const placement = placements.get(widget.id)
+    if (!placement) continue
+    const dragging = drag?.id === widget.id
+    const resizing = resize?.id === widget.id
+    const rect =
+      dragging && dragFrame
+        ? dragFrame
+        : cellRect(metrics, placement.x, placement.y, placement.w, placement.h)
+    const shown = displaySize(widget.type, placement.w, placement.h, screen)
+    const leftMax = Math.max(1, placement.x + placement.w)
+    const rightMax = Math.max(1, columns - placement.x)
+    const extent =
+      resizing && resize
+        ? resizeExtent(
+            widget.type,
+            screen,
+            resize.corner === "br"
+              ? Math.max(1, columns - resize.anchor.x)
+              : Math.max(1, resize.anchor.x + resize.anchor.w),
+          )
+        : null
+    const atWidth = !!extent && placement.w >= extent.maxW
+    const atHeight = !!extent && placement.h >= extent.maxH
+    liveCards.push({
+      id: widget.id,
+      name: type.name,
+      gray: type.gray,
+      label: `${shown.w}×${shown.h}`,
+      lifting: dragging,
+      resizing,
+      showHandles: gestures.handlesFor === widget.id || resizing,
+      selected: gestures.selectedId === widget.id,
+      resizeLocked: !canResize(widget.type, screen),
+      axes: {
+        bl: resizeAxes(widget.type, screen, leftMax),
+        br: resizeAxes(widget.type, screen, rightMax),
+      },
+      edgeLimit: extent
+        ? {
+            left: resize?.corner === "bl" && atWidth,
+            right: resize?.corner === "br" && atWidth,
+            bottom: atHeight,
+          }
+        : undefined,
+      style: {
+        ...rect,
+        borderRadius: metrics.radius,
+        zIndex: gestures.handlesFor === widget.id && !dragging ? 3 : undefined,
+      },
+    })
+  }
+
+  const exiting = leaving.filter((card) => !documentIds.has(card.id))
+
+  useLayoutEffect(() => {
+    painted.current = new Map(liveCards.map((card) => [card.id, card]))
+  })
+
+  const cards = [
+    ...liveCards.map((card) => ({ card, leaving: false })),
+    ...exiting.map((card) => ({ card, leaving: true })),
+  ]
 
   return (
     <main
@@ -326,64 +464,24 @@ export function Dashboard() {
           style={{ ...heldGhost, borderRadius: metrics.radius }}
         />
       ) : null}
-      {widgets.map((widget) => {
-        const type = widgetType(widget.type)
-        const placement = placements.get(widget.id)
-        if (!placement) return null
-        const dragging = drag?.id === widget.id
-        const resizing = resize?.id === widget.id
-        const rect =
-          dragging && dragFrame
-            ? dragFrame
-            : cellRect(metrics, placement.x, placement.y, placement.w, placement.h)
-        const shown = displaySize(widget.type, placement.w, placement.h, screen)
-        const leftMax = Math.max(1, placement.x + placement.w)
-        const rightMax = Math.max(1, columns - placement.x)
-        const extent =
-          resizing && resize
-            ? resizeExtent(
-                widget.type,
-                screen,
-                resize.corner === "br"
-                  ? Math.max(1, columns - resize.anchor.x)
-                  : Math.max(1, resize.anchor.x + resize.anchor.w),
-              )
-            : null
-        const atWidth = !!extent && placement.w >= extent.maxW
-        const atHeight = !!extent && placement.h >= extent.maxH
-        return (
-          <WidgetCard
-            key={widget.id}
-            id={widget.id}
-            name={type.name}
-            gray={type.gray}
-            label={`${shown.w}×${shown.h}`}
-            lifting={dragging}
-            resizing={resizing}
-            showHandles={gestures.handlesFor === widget.id || resizing}
-            selected={gestures.selectedId === widget.id}
-            resizeLocked={!canResize(widget.type, screen)}
-            axes={{
-              bl: resizeAxes(widget.type, screen, leftMax),
-              br: resizeAxes(widget.type, screen, rightMax),
-            }}
-            edgeLimit={
-              extent
-                ? {
-                    left: resize?.corner === "bl" && atWidth,
-                    right: resize?.corner === "br" && atWidth,
-                    bottom: atHeight,
-                  }
-                : undefined
-            }
-            style={{
-              ...rect,
-              borderRadius: metrics.radius,
-              zIndex: gestures.handlesFor === widget.id && !dragging ? 3 : undefined,
-            }}
-          />
-        )
-      })}
+      {cards.map(({ card, leaving: fading }) => (
+        <WidgetCard
+          key={card.id}
+          id={card.id}
+          name={card.name}
+          gray={card.gray}
+          label={card.label}
+          lifting={fading ? false : card.lifting}
+          resizing={fading ? false : card.resizing}
+          showHandles={card.showHandles}
+          selected={card.selected}
+          resizeLocked={card.resizeLocked}
+          axes={card.axes}
+          edgeLimit={fading ? undefined : card.edgeLimit}
+          leaving={fading}
+          style={card.style}
+        />
+      ))}
       {gestures.menu ? (
         <AddMenu
           left={gestures.menu.left}
