@@ -1,0 +1,9 @@
+dist
+storage
+node_modules
+server
+package-lock.json
+pnpm-lock.yaml
+.pnpm-store
+.cursor
+.vscode

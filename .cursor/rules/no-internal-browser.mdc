@@ -1,0 +1,14 @@
+---
+description: Never test this app in the agent's internal browser
+alwaysApply: true
+---
+
+# No internal browser testing
+
+Do not open, drive, or screenshot this app in Cursor's internal browser. That browser cannot test this project, and this stays in force for every future session.
+
+Do not use browser tools, CDP, device emulation, or a preview tab against the dev server or a production build.
+
+The user tests the interface manually in their own browser and will say what to change.
+
+Checks that stay allowed are `pnpm run ci`, requests to the PHP API, inspection of build output, and other non-browser commands.

@@ -1,0 +1,52 @@
+{
+  "name": "dashboardy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"php -S 127.0.0.1:8080 server/router.php\" \"vite\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip",
+    "circular": "madge --circular --extensions ts,tsx --ts-config tsconfig.json src scripts",
+    "ci": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run knip && pnpm run circular",
+    "build": "vite build",
+    "deploy": "tsx scripts/deploy.ts",
+    "bad": "pnpm run ci && pnpm run build && pnpm run deploy",
+    "preview": "vite preview",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.9.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
+    "basic-ftp": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.3",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.4.0",
+    "husky": "^9.1.7",
+    "knip": "^5.66.3",
+    "madge": "^8.0.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vite": "^7.1.12"
+  }
+}
