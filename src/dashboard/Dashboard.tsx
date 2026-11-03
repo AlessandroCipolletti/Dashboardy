@@ -2,10 +2,23 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { canvasHeight, cellRect, computeGrid } from "../grid/metrics"
 import type { Placement } from "../grid/pack"
 import { useDashboardDocument } from "../persistence/useDashboardDocument"
-import { canResize, displaySize, widgetType } from "../widgets/catalog"
+import {
+  canResize,
+  displaySize,
+  resizeAxes,
+  resizeExtent,
+  screenLimits,
+  widgetType,
+} from "../widgets/catalog"
 import { AddMenu } from "./AddMenu"
 import { GridGuides } from "./GridGuides"
-import { createdRows, ensurePositions, placeDragged, placeResized } from "./layout"
+import {
+  adaptLayout,
+  createdRows,
+  ensurePositions,
+  placeDragged,
+  placeResized,
+} from "./layout"
 import { useGestures } from "./useGestures"
 import { WidgetCard } from "./WidgetCard"
 
@@ -70,32 +83,38 @@ export function Dashboard() {
   const origin = useCanvasOrigin(canvasRef)
   const metricsRef = useRef(metrics)
   const widgetsRef = useRef(document.widgets)
+  const authoredRef = useRef(document.widgets)
   const placementsRef = useRef(new Map<string, Placement>())
 
   const gestures = useGestures({
     canvasRef,
     metricsRef,
     widgetsRef,
+    authoredRef,
     placementsRef,
     commit,
   })
 
   const columns = metrics.columns
-  const positioned = ensurePositions(document.widgets, columns)
+  const screen = useMemo(
+    () => screenLimits(metrics, viewport.height),
+    [metrics, viewport.height],
+  )
+  const authored = ensurePositions(document.widgets, screen)
+  const adapted = adaptLayout(authored, screen)
 
   useEffect(() => {
-    if (positioned === document.widgets) return
+    if (authored === document.widgets) return
     commit((current) => ({
       ...current,
-      widgets: ensurePositions(current.widgets, columns),
+      widgets: ensurePositions(current.widgets, screen),
     }))
-  }, [columns, commit, document.widgets, positioned])
+  }, [authored, commit, document.widgets, screen])
   const localPoint = (clientX: number, clientY: number) => ({
     x: clientX - origin.left,
     y: clientY - origin.top,
   })
 
-  let preview = positioned
   let dragFrame: { left: number; top: number; width: number; height: number } | null =
     null
 
@@ -109,35 +128,41 @@ export function Dashboard() {
       width: mode.width,
       height: mode.height,
     }
-    preview = placeDragged(
-      positioned,
-      mode.id,
-      mode.slot.x,
-      mode.slot.y,
-      columns,
-      createdRows(positioned, metrics, viewport.height),
-    )
   }
 
-  if (gestures.mode.type === "resize") {
-    const mode = gestures.mode
-    const widget = positioned.find((item) => item.id === mode.id)
-    if (widget) {
-      preview = placeResized(positioned, mode.id, mode.snapped, columns)
+  const dragSlot = gestures.mode.type === "drag" ? gestures.mode.slot : null
+  const dragId = gestures.mode.type === "drag" ? gestures.mode.id : null
+  const resizeSnap = gestures.mode.type === "resize" ? gestures.mode.snapped : null
+  const resizeId = gestures.mode.type === "resize" ? gestures.mode.id : null
+  const preview = useMemo(() => {
+    if (dragSlot && dragId) {
+      return placeDragged(
+        adapted,
+        dragId,
+        dragSlot.x,
+        dragSlot.y,
+        screen,
+        createdRows(adapted, metrics, viewport.height),
+      )
     }
-  }
+    if (resizeSnap && resizeId) {
+      const widget = adapted.find((item) => item.id === resizeId)
+      if (widget) return placeResized(adapted, resizeId, resizeSnap, screen)
+    }
+    return adapted
+  }, [adapted, dragId, dragSlot, metrics, resizeId, resizeSnap, screen, viewport.height])
 
   const placements = new Map(
     preview.map((widget) => {
-      const size = displaySize(widget.type, widget.w, widget.h, columns)
+      const size = displaySize(widget.type, widget.w, widget.h, screen)
       return [widget.id, { x: widget.x, y: widget.y, w: size.w, h: size.h }] as const
     }),
   )
   const occupiedRows = preview.reduce((max, widget) => {
-    const size = displaySize(widget.type, widget.w, widget.h, columns)
+    const size = displaySize(widget.type, widget.w, widget.h, screen)
     return Math.max(max, widget.y + size.h)
   }, 0)
-  const rows = Math.max(createdRows(positioned, metrics, viewport.height), occupiedRows)
+  const rows = Math.max(createdRows(adapted, metrics, viewport.height), occupiedRows)
   const canvasPixels = canvasHeight(metrics, rows)
   const interacting = gestures.mode.type !== "idle"
   const drag = gestures.mode.type === "drag" ? gestures.mode : null
@@ -145,6 +170,10 @@ export function Dashboard() {
   const previousBoxes = useRef(
     new Map<string, { left: number; top: number; width: number; height: number }>(),
   )
+  const previousCells = useRef(
+    new Map<string, { x: number; y: number; w: number; h: number }>(),
+  )
+  const previousMetrics = useRef(metrics)
   const liveGhost = (() => {
     const id = drag?.id ?? resize?.id
     if (!id) return null
@@ -180,58 +209,87 @@ export function Dashboard() {
 
   useLayoutEffect(() => {
     metricsRef.current = metrics
-    widgetsRef.current = document.widgets
+    widgetsRef.current = adapted
+    authoredRef.current = document.widgets
     placementsRef.current = placements
     const canvas = canvasRef.current
     if (!canvas) return
+    const metricsChanged =
+      previousMetrics.current.columns !== metrics.columns ||
+      previousMetrics.current.cell !== metrics.cell ||
+      previousMetrics.current.width !== metrics.width
+    previousMetrics.current = metrics
     const seen = new Set<string>()
     canvas.querySelectorAll<HTMLElement>("[data-widget-id]").forEach((node) => {
       const id = node.dataset.widgetId
       if (!id) return
       seen.add(id)
+      const cell = placements.get(id)
+      const previousCell = previousCells.current.get(id)
+      const cellChanged =
+        !!cell &&
+        !!previousCell &&
+        (previousCell.x !== cell.x ||
+          previousCell.y !== cell.y ||
+          previousCell.w !== cell.w ||
+          previousCell.h !== cell.h)
+      const followPointer = drag?.id === id
+      if (followPointer || cellChanged) {
+        node.getAnimations().forEach((animation) => animation.cancel())
+      }
+      const previous = previousBoxes.current.get(id)
       const next = {
         left: node.offsetLeft,
         top: node.offsetTop,
         width: node.offsetWidth,
         height: node.offsetHeight,
       }
-      const previous = previousBoxes.current.get(id)
-      const followPointer = drag?.id === id
-      if (previous && !followPointer) {
+      const pixelsChanged =
+        !!previous &&
+        (Math.abs(previous.left - next.left) > 0.5 ||
+          Math.abs(previous.top - next.top) > 0.5 ||
+          Math.abs(previous.width - next.width) > 0.5 ||
+          Math.abs(previous.height - next.height) > 0.5)
+      const screenScaleOnly = metricsChanged && !cellChanged
+      if (followPointer) {
+        node.style.zIndex = ""
+      } else if (previous && cellChanged && pixelsChanged && !screenScaleOnly) {
         const dx = previous.left - next.left
         const dy = previous.top - next.top
-        const dw = previous.width - next.width
-        const dh = previous.height - next.height
-        if (
-          Math.abs(dx) > 0.5 ||
-          Math.abs(dy) > 0.5 ||
-          Math.abs(dw) > 0.5 ||
-          Math.abs(dh) > 0.5
-        ) {
-          node.animate(
-            [
-              {
-                transform: `translate(${dx}px, ${dy}px)`,
-                width: `${previous.width}px`,
-                height: `${previous.height}px`,
-              },
-              {
-                transform: "translate(0, 0)",
-                width: `${next.width}px`,
-                height: `${next.height}px`,
-              },
-            ],
+        node.style.zIndex = "3"
+        const animation = node.animate(
+          [
             {
-              duration: resize?.id === id ? 180 : 250,
-              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+              transform: `translate(${dx}px, ${dy}px)`,
+              width: `${previous.width}px`,
+              height: `${previous.height}px`,
             },
-          )
+            {
+              transform: "translate(0, 0)",
+              width: `${next.width}px`,
+              height: `${next.height}px`,
+            },
+          ],
+          { duration: 480, easing: "cubic-bezier(0.4, 0, 0.15, 1)" },
+        )
+        const clearLayer = () => {
+          if (node.getAnimations().length === 0) node.style.zIndex = ""
         }
+        void animation.finished.then(clearLayer, clearLayer)
+      } else if (
+        !cellChanged &&
+        node.style.zIndex === "3" &&
+        node.getAnimations().length === 0
+      ) {
+        node.style.zIndex = ""
       }
       previousBoxes.current.set(id, next)
+      if (cell) previousCells.current.set(id, cell)
     })
     for (const id of previousBoxes.current.keys()) {
-      if (!seen.has(id)) previousBoxes.current.delete(id)
+      if (seen.has(id)) continue
+      previousBoxes.current.delete(id)
+      previousCells.current.delete(id)
     }
   })
 
@@ -278,7 +336,21 @@ export function Dashboard() {
           dragging && dragFrame
             ? dragFrame
             : cellRect(metrics, placement.x, placement.y, placement.w, placement.h)
-        const shown = displaySize(widget.type, placement.w, placement.h, columns)
+        const shown = displaySize(widget.type, placement.w, placement.h, screen)
+        const leftMax = Math.max(1, placement.x + placement.w)
+        const rightMax = Math.max(1, columns - placement.x)
+        const extent =
+          resizing && resize
+            ? resizeExtent(
+                widget.type,
+                screen,
+                resize.corner === "br"
+                  ? Math.max(1, columns - resize.anchor.x)
+                  : Math.max(1, resize.anchor.x + resize.anchor.w),
+              )
+            : null
+        const atWidth = !!extent && placement.w >= extent.maxW
+        const atHeight = !!extent && placement.h >= extent.maxH
         return (
           <WidgetCard
             key={widget.id}
@@ -289,7 +361,21 @@ export function Dashboard() {
             lifting={dragging}
             resizing={resizing}
             showHandles={gestures.handlesFor === widget.id || resizing}
-            resizeLocked={!canResize(widget.type, columns)}
+            selected={gestures.selectedId === widget.id}
+            resizeLocked={!canResize(widget.type, screen)}
+            axes={{
+              bl: resizeAxes(widget.type, screen, leftMax),
+              br: resizeAxes(widget.type, screen, rightMax),
+            }}
+            edgeLimit={
+              extent
+                ? {
+                    left: resize?.corner === "bl" && atWidth,
+                    right: resize?.corner === "br" && atWidth,
+                    bottom: atHeight,
+                  }
+                : undefined
+            }
             style={{
               ...rect,
               borderRadius: metrics.radius,

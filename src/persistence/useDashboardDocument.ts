@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { isDocument, seedDocument, type DashboardDocument } from "../model/document"
+import {
+  demoRevision,
+  isDocument,
+  seedDocument,
+  type DashboardDocument,
+} from "../model/document"
 
 const CLIENT_KEY = "dashboardy.clientId"
 const DOC_KEY = "dashboardy.document"
+const DEMO_KEY = "dashboardy.demoRevision"
 
 function clientId(): string {
   const existing = localStorage.getItem(CLIENT_KEY)
@@ -14,6 +20,13 @@ function clientId(): string {
 
 function loadLocal(): DashboardDocument {
   try {
+    const revision = localStorage.getItem(DEMO_KEY)
+    if (revision !== String(demoRevision)) {
+      const seeded = seedDocument()
+      localStorage.setItem(DEMO_KEY, String(demoRevision))
+      saveLocal(seeded)
+      return seeded
+    }
     const raw = localStorage.getItem(DOC_KEY)
     if (!raw) return seedDocument()
     const parsed: unknown = JSON.parse(raw)

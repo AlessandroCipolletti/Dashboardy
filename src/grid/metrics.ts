@@ -7,18 +7,30 @@ export type GridMetrics = {
   width: number
 }
 
-// Target cell size is the tuning knob for how many even columns fit.
-// Narrow screens stay near 168px so a phone is 2 columns and landscape is 4.
-// Desktop stays near 100px so a 1920px window is about 16 columns.
+// Even column counts for the CSS widths of current phones and iPads.
+// iPhone Pro Max is 440×956: 4 portrait, 8 landscape.
+// iPad mini is 744×1133: 6 portrait, 8 landscape.
+// A 9.7" iPad is 768 wide in portrait, so it steps up to 8.
+// Wider tablets and desktops keep that proportion, about 16 columns at 1920.
+function columnsForWidth(width: number): number {
+  if (width < 360) return 2
+  if (width < 600) return 4
+  if (width < 768) return 6
+  if (width < 1280) return 8
+  if (width < 1500) return 10
+  if (width < 1700) return 12
+  if (width < 1900) return 14
+  if (width < 2200) return 16
+  if (width < 2500) return 18
+  return 22
+}
+
 export function computeGrid(viewportWidth: number): GridMetrics {
   const width = Math.max(280, Math.floor(viewportWidth))
   const padding = width < 768 ? 12 : 24
   const gap = 12
-  const target = width < 900 ? 168 : width < 1200 ? 140 : 100
+  const columns = columnsForWidth(width)
   const available = width - padding * 2
-  let columns = Math.floor((available + gap) / (target + gap))
-  if (columns < 2) columns = 2
-  if (columns % 2 === 1) columns -= 1
   const cell = (available - gap * (columns - 1)) / columns
   const radius = Math.max(10, Math.round(cell * 0.14))
   return { padding, gap, columns, cell, radius, width }
@@ -60,6 +72,15 @@ export function cellRect(
 export function rowsInViewport(metrics: GridMetrics, viewportHeight: number): number {
   const stride = metrics.cell + metrics.gap
   return Math.max(1, Math.ceil(Math.max(0, viewportHeight) / stride))
+}
+
+// Largest row span whose boxes fit in the viewport. One gap is not counted
+// after the last row, so this is the tallest a widget is allowed to be.
+export function rowsOnScreen(metrics: GridMetrics, viewportHeight: number): number {
+  const stride = metrics.cell + metrics.gap
+  const height = Math.max(0, viewportHeight)
+  if (height < metrics.cell) return 1
+  return Math.max(1, Math.floor((height + metrics.gap) / stride))
 }
 
 const SHADOW_CLEARANCE = 24

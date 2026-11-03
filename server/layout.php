@@ -5,7 +5,20 @@ require __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-const WIDGET_TYPES = ['compact', 'wide', 'free', 'horizontal', 'vertical', 'square'];
+const WIDGET_TYPES = [
+    'compact',
+    'wide',
+    'free',
+    'horizontal',
+    'vertical',
+    'square',
+    'band',
+    'block',
+    'tower',
+    'poster',
+    'panorama',
+    'banner',
+];
 
 function fail(int $status, string $error): void
 {
@@ -53,7 +66,7 @@ function sanitize_document(mixed $document): ?array
         $h = (int) $h;
         $x = array_key_exists('x', $widget) && is_numeric($widget['x']) ? (int) $widget['x'] : -1;
         $y = array_key_exists('y', $widget) && is_numeric($widget['y']) ? (int) $widget['y'] : -1;
-        if ($w < 1 || $h < 1 || $w > 12 || $h > 12 || $x < -1 || $y < -1 || $x > 400 || $y > 400) {
+        if ($w < 1 || $h < 1 || $w > 80 || $h > 80 || $x < -1 || $y < -1 || $x > 400 || $y > 400) {
             return null;
         }
         $widgets[] = ['id' => $id, 'type' => $type, 'w' => $w, 'h' => $h, 'x' => $x, 'y' => $y];

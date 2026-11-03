@@ -5,18 +5,21 @@ import type { Placement } from "../grid/pack"
 import { pixelToCell } from "../grid/metrics"
 import type { GridMetrics } from "../grid/metrics"
 import type { DashboardDocument, Widget } from "../model/document"
-import { canResize, defaultSize } from "../widgets/catalog"
+import { canResize, defaultSize, screenLimits } from "../widgets/catalog"
 import type { WidgetTypeId } from "../widgets/catalog"
 import {
   createdRows,
   placeDragged,
   placeNew,
   placeResized,
+  reconcileEdit,
   settleSlot,
   snapPreview,
 } from "./layout"
 
 const HOLD_MS = 350
+const PRESS_DRAG_MS = 200
+const LAYOUT_GAP_MS = 520
 const HANDLE_STILL_MS = 500
 const PLUS_STILL_MS = 2000
 const MOVE_CANCEL_PX = 10
@@ -70,6 +73,17 @@ type Pending =
       height: number
     }
   | {
+      kind: "press"
+      pointerId: number
+      id: string
+      startX: number
+      startY: number
+      offsetX: number
+      offsetY: number
+      width: number
+      height: number
+    }
+  | {
       kind: "empty"
       pointerId: number
       startX: number
@@ -87,12 +101,14 @@ export function useGestures(input: {
   canvasRef: RefObject<HTMLDivElement | null>
   metricsRef: RefObject<GridMetrics>
   widgetsRef: RefObject<Widget[]>
+  authoredRef: RefObject<Widget[]>
   placementsRef: RefObject<Map<string, Placement>>
   commit: (recipe: (document: DashboardDocument) => DashboardDocument) => void
 }) {
-  const { canvasRef, metricsRef, widgetsRef, placementsRef, commit } = input
+  const { canvasRef, metricsRef, widgetsRef, authoredRef, placementsRef, commit } = input
   const [mode, setMode] = useState<Mode>({ type: "idle" })
   const [handlesFor, setHandlesFor] = useState<string | null>(null)
+  const [selectedId, setSelected] = useState<string | null>(null)
   const [plusCell, setPlusCell] = useState<{ x: number; y: number } | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
 
@@ -112,6 +128,9 @@ export function useGestures(input: {
 
   const pendingRef = useRef<Pending | null>(null)
   const holdTimer = useRef<number | null>(null)
+  const layoutTimer = useRef<number | null>(null)
+  const layoutGate = useRef(0)
+  const latestPointer = useRef({ x: 0, y: 0 })
   const handleTimer = useRef<number | null>(null)
   const plusTimer = useRef<number | null>(null)
   const hoverPoint = useRef({ clientX: -1000, clientY: -1000 })
@@ -190,7 +209,11 @@ export function useGestures(input: {
       hidePlus()
       clearHandleTimer()
       setHandlesFor(null)
+      setSelected(null)
       setMenu(null)
+      layoutGate.current = 0
+      if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
+      layoutTimer.current = null
       const placement = placementsRef.current.get(id)
       updateMode({
         type: "drag",
@@ -221,6 +244,9 @@ export function useGestures(input: {
       hidePlus()
       setMenu(null)
       setHandlesFor(id)
+      layoutGate.current = 0
+      if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
+      layoutTimer.current = null
       const anchor = { x: placement.x, y: placement.y, w: placement.w, h: placement.h }
       updateMode({
         type: "resize",
@@ -360,6 +386,7 @@ export function useGestures(input: {
           widgets: current.widgets.filter((widget) => widget.id !== id),
         }))
         setHandlesFor(null)
+        setSelected(null)
         return
       }
 
@@ -385,18 +412,40 @@ export function useGestures(input: {
         const offsetX = event.clientX - rect.left
         const offsetY = event.clientY - rect.top
         if (event.pointerType === "mouse") {
-          if (event.button !== 0 || !closest(event.target, ".belly")) return
+          if (event.button !== 0) return
           event.preventDefault()
-          startDrag(
-            event.pointerId,
+          const press: Pending = {
+            kind: "press",
+            pointerId: event.pointerId,
             id,
-            event.clientX,
-            event.clientY,
+            startX: event.clientX,
+            startY: event.clientY,
             offsetX,
             offsetY,
-            rect.width,
-            rect.height,
-          )
+            width: rect.width,
+            height: rect.height,
+          }
+          pendingRef.current = press
+          if (holdTimer.current !== null) window.clearTimeout(holdTimer.current)
+          holdTimer.current = window.setTimeout(() => {
+            const pending = pendingRef.current
+            if (
+              !pending ||
+              pending.kind !== "press" ||
+              pending.pointerId !== press.pointerId
+            )
+              return
+            startDrag(
+              pending.pointerId,
+              pending.id,
+              pending.startX,
+              pending.startY,
+              pending.offsetX,
+              pending.offsetY,
+              pending.width,
+              pending.height,
+            )
+          }, PRESS_DRAG_MS)
           return
         }
 
@@ -444,7 +493,13 @@ export function useGestures(input: {
               return
             }
             const widget = widgetsRef.current.find((item) => item.id === pending.id)
-            if (!widget || !canResize(widget.type, metricsRef.current.columns)) {
+            if (
+              !widget ||
+              !canResize(
+                widget.type,
+                screenLimits(metricsRef.current, window.innerHeight),
+              )
+            ) {
               revealChrome(pending.id)
               return
             }
@@ -460,7 +515,10 @@ export function useGestures(input: {
         return
       }
 
-      if (event.pointerType === "mouse") return
+      if (event.pointerType === "mouse") {
+        setSelected(null)
+        return
+      }
       const cell = emptyCellAt(event.clientX, event.clientY)
       if (!cell) return
       beginHold(
@@ -480,8 +538,104 @@ export function useGestures(input: {
       )
     }
 
+    const clearLayoutTimer = () => {
+      if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
+      layoutTimer.current = null
+    }
+
+    const publishLayout = (): boolean => {
+      const active = modeRef.current
+      const point = latestPointer.current
+      if (active.type === "drag") {
+        const metrics = metricsRef.current
+        const local = localPoint(point.x, point.y)
+        const maxLeft = Math.max(0, metrics.width - active.width)
+        const left = Math.min(Math.max(0, local.x - active.offsetX), maxLeft)
+        const top = Math.max(0, local.y - active.offsetY)
+        const placement = placementsRef.current.get(active.id)
+        const rows = createdRows(widgetsRef.current, metrics, window.innerHeight)
+        const slot = settleSlot(
+          active.slot,
+          left,
+          top,
+          metrics,
+          Math.max(0, metrics.columns - (placement?.w ?? 1)),
+          Math.max(0, rows - (placement?.h ?? 1)),
+        )
+        if (slot.x === active.slot.x && slot.y === active.slot.y) return false
+        updateMode({ ...active, clientX: point.x, clientY: point.y, slot })
+        return true
+      }
+      if (active.type !== "resize") return false
+      const widget = widgetsRef.current.find((item) => item.id === active.id)
+      const local = localPoint(point.x, point.y)
+      const snapped = widget
+        ? snapPreview(
+            active.corner,
+            active.anchor,
+            local,
+            metricsRef.current,
+            widget.type,
+            active.snapped,
+            screenLimits(metricsRef.current, window.innerHeight).rows,
+            localPoint(active.clientX, active.clientY),
+          )
+        : active.snapped
+      if (
+        snapped.x === active.snapped.x &&
+        snapped.y === active.snapped.y &&
+        snapped.w === active.snapped.w &&
+        snapped.h === active.snapped.h
+      ) {
+        return false
+      }
+      updateMode({ ...active, clientX: point.x, clientY: point.y, snapped })
+      return true
+    }
+
+    const scheduleLayout = () => {
+      const now = performance.now()
+      const elapsed = now - layoutGate.current
+      if (layoutGate.current === 0 || elapsed >= LAYOUT_GAP_MS) {
+        clearLayoutTimer()
+        if (publishLayout()) layoutGate.current = performance.now()
+        return
+      }
+      if (layoutTimer.current !== null) return
+      layoutTimer.current = window.setTimeout(() => {
+        layoutTimer.current = null
+        if (publishLayout()) layoutGate.current = performance.now()
+      }, LAYOUT_GAP_MS - elapsed)
+    }
+
+    const flushLayout = () => {
+      clearLayoutTimer()
+      publishLayout()
+      layoutGate.current = 0
+    }
+
     const onPointerMove = (event: PointerEvent) => {
       const pending = pendingRef.current
+      if (pending?.kind === "press" && pending.pointerId === event.pointerId) {
+        event.preventDefault()
+        const distance = Math.hypot(
+          event.clientX - pending.startX,
+          event.clientY - pending.startY,
+        )
+        if (distance > MOVE_CANCEL_PX) {
+          startDrag(
+            pending.pointerId,
+            pending.id,
+            event.clientX,
+            event.clientY,
+            pending.offsetX,
+            pending.offsetY,
+            pending.width,
+            pending.height,
+          )
+        }
+        return
+      }
       if (pending && pending.pointerId === event.pointerId) {
         if (pending.kind === "empty") {
           const cell = emptyCellAt(event.clientX, event.clientY)
@@ -500,52 +654,34 @@ export function useGestures(input: {
       const active = modeRef.current
       if (active.type === "resize" && active.pointerId === event.pointerId) {
         event.preventDefault()
-        const widget = widgetsRef.current.find((item) => item.id === active.id)
-        const local = localPoint(event.clientX, event.clientY)
-        const snapped = widget
-          ? snapPreview(
-              active.corner,
-              active.anchor,
-              local,
-              metricsRef.current,
-              widget.type,
-              active.snapped,
-            )
-          : active.snapped
-        updateMode({
-          ...active,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          snapped,
-        })
+        latestPointer.current = { x: event.clientX, y: event.clientY }
+        scheduleLayout()
         return
       }
       if (active.type === "drag" && active.pointerId === event.pointerId) {
         event.preventDefault()
-        const metrics = metricsRef.current
-        const point = localPoint(event.clientX, event.clientY)
-        const maxLeft = Math.max(0, metrics.width - active.width)
-        const left = Math.min(Math.max(0, point.x - active.offsetX), maxLeft)
-        const top = Math.max(0, point.y - active.offsetY)
-        const placement = placementsRef.current.get(active.id)
-        const rows = createdRows(widgetsRef.current, metrics, window.innerHeight)
-        const slot = settleSlot(
-          active.slot,
-          left,
-          top,
-          metrics,
-          Math.max(0, metrics.columns - (placement?.w ?? 1)),
-          Math.max(0, rows - (placement?.h ?? 1)),
-        )
-        updateMode({ ...active, clientX: event.clientX, clientY: event.clientY, slot })
+        latestPointer.current = { x: event.clientX, y: event.clientY }
+        updateMode({ ...active, clientX: event.clientX, clientY: event.clientY })
+        scheduleLayout()
         return
       }
       trackMouse(event)
     }
 
     const finish = (event: PointerEvent, commitGesture: boolean) => {
+      const moving = modeRef.current
+      if (
+        (moving.type === "drag" || moving.type === "resize") &&
+        moving.pointerId === event.pointerId
+      ) {
+        latestPointer.current = { x: event.clientX, y: event.clientY }
+        flushLayout()
+      }
       const pending = pendingRef.current
-      if (pending && pending.pointerId === event.pointerId) clearHold()
+      if (pending && pending.pointerId === event.pointerId) {
+        if (commitGesture && pending.kind === "press") setSelected(pending.id)
+        clearHold()
+      }
       const active = modeRef.current
       if (active.type === "idle" || active.pointerId !== event.pointerId) return
 
@@ -557,16 +693,21 @@ export function useGestures(input: {
         const moving = widgetsRef.current.find((widget) => widget.id === active.id)
         if (moving && distance > MOVE_CANCEL_PX) {
           const metrics = metricsRef.current
-          const next = placeDragged(
-            widgetsRef.current,
+          const adapted = widgetsRef.current
+          const edited = placeDragged(
+            adapted,
             active.id,
             active.slot.x,
             active.slot.y,
-            metrics.columns,
-            createdRows(widgetsRef.current, metrics, window.innerHeight),
+            screenLimits(metrics, window.innerHeight),
+            createdRows(adapted, metrics, window.innerHeight),
           )
-          if (next.some((widget, index) => widget !== widgetsRef.current[index])) {
-            commitRef.current((current) => ({ ...current, widgets: next }))
+          const saved = reconcileEdit(authoredRef.current, adapted, edited)
+          if (saved.some((widget, index) => widget !== authoredRef.current[index])) {
+            commitRef.current((current) => ({
+              ...current,
+              widgets: reconcileEdit(current.widgets, adapted, edited),
+            }))
           }
         }
       }
@@ -575,19 +716,30 @@ export function useGestures(input: {
         const widget = widgetsRef.current.find((item) => item.id === active.id)
         if (widget) {
           if (active.snapped.legal) {
-            const next = placeResized(
-              widgetsRef.current,
+            const adapted = widgetsRef.current
+            const edited = placeResized(
+              adapted,
               active.id,
               active.snapped,
-              metricsRef.current.columns,
+              screenLimits(metricsRef.current, window.innerHeight),
             )
-            commitRef.current((current) => ({ ...current, widgets: next }))
+            const saved = reconcileEdit(authoredRef.current, adapted, edited)
+            if (saved.some((widget, index) => widget !== authoredRef.current[index])) {
+              commitRef.current((current) => ({
+                ...current,
+                widgets: reconcileEdit(current.widgets, adapted, edited),
+              }))
+            }
           }
         }
       }
 
       updateMode({ type: "idle" })
       if (active.type === "drag") setHandlesFor(null)
+      if (active.type === "resize") {
+        setSelected(null)
+        setHandlesFor(null)
+      }
     }
 
     const onPointerUp = (event: PointerEvent) => finish(event, true)
@@ -611,6 +763,7 @@ export function useGestures(input: {
 
     return () => {
       clearHold()
+      clearLayoutTimer()
       clearHandleTimer()
       clearPlusTimer()
       canvas.removeEventListener("pointerdown", onPointerDown)
@@ -621,7 +774,7 @@ export function useGestures(input: {
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("wheel", onWheel)
     }
-  }, [canvasRef, metricsRef, placementsRef, widgetsRef])
+  }, [authoredRef, canvasRef, metricsRef, placementsRef, widgetsRef])
 
   const closeMenu = () => setMenu(null)
 
@@ -630,8 +783,8 @@ export function useGestures(input: {
     if (!cell) return
     setMenu(null)
     commitRef.current((current) => {
-      const columns = metricsRef.current.columns
-      const size = defaultSize(type, columns)
+      const screen = screenLimits(metricsRef.current, window.innerHeight)
+      const size = defaultSize(type, screen)
       const widget = {
         id: crypto.randomUUID(),
         type,
@@ -640,9 +793,11 @@ export function useGestures(input: {
         x: cell.x,
         y: cell.y,
       }
-      return { ...current, widgets: placeNew(current.widgets, widget, columns) }
+      const adapted = widgetsRef.current
+      const edited = placeNew(adapted, widget, screen)
+      return { ...current, widgets: reconcileEdit(current.widgets, adapted, edited) }
     })
   }
 
-  return { mode, handlesFor, plusCell, menu, closeMenu, chooseType }
+  return { mode, handlesFor, selectedId, plusCell, menu, closeMenu, chooseType }
 }

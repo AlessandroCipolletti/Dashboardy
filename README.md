@@ -44,13 +44,13 @@ Il deploy non gira su GitHub. Le password FTP e del database restano nel `.env` 
 
 ## Griglia
 
-La pagina è una griglia invisibile, con un numero pari di colonne. Su un telefono in verticale sono due, in orizzontale quattro; su un desktop largo se ne vedono molte di più. Il numero e la dimensione delle celle stanno in `src/grid/metrics.ts`.
+La pagina è una griglia invisibile, con un numero pari di colonne. Un iPhone Pro Max ne mostra quattro in verticale e otto in orizzontale; un iPad mini sei e otto; un iPad da 9,7″ otto in verticale. Gli iPad più grandi e i desktop seguono la stessa proporzione. Il numero e la dimensione delle celle stanno in `src/grid/metrics.ts`.
 
 Intorno alla pagina c’è un padding di 12px sotto i 768px e di 24px sopra. Tra le celle ci sono 12px. Il raggio degli angoli è circa il 14% del lato, così le proporzioni restano uguali su ogni schermo.
 
 Le celle restano trasparenti. Durante un trascinamento o un ridimensionamento diventano grigie in 250ms. Se il mouse resta fermo due secondi su una cella vuota, quella cella mostra un più e apre il menu dei widget. Su touch, una pressione di circa 350ms su una zona vuota apre lo stesso menu.
 
-I widget di questa demo sono sei, tutti in scala di grigi, e ognuno accetta solo alcune misure: Compatto, Ampio, Libero, Orizzontale, Verticale, Quadrato. L’ordine non compatta più i buchi: ogni widget resta nella cella in cui viene lasciato, anche se intorno ci sono righe vuote. Sotto l’ultimo widget c’è al massimo una schermata vuota. Durante il trascinamento la pagina non scorre e non si allunga.
+I widget di questa demo sono sei, tutti in scala di grigi. Compatto ha solo quattro misure fisse. Ampio va da 3 colonne fino a tutta la riga e da 2 a 5 righe. Libero e Quadrato possono crescere fino allo schermo: la larghezza massima è il numero di colonne della riga, l’altezza massima è il numero di righe che stanno in una schermata. Orizzontale resta più largo che alto, Verticale più alto che largo. L’ordine non compatta più i buchi: ogni widget resta nella cella in cui viene lasciato, anche se intorno ci sono righe vuote. Se lo schermo ha meno colonne, i widget che non ci stanno vanno a capo nell’ordine in cui si leggevano, dall’alto a sinistra, senza riscrivere le posizioni salvate. Un widget che non ha nessuna misura legale su quella griglia, per esempio uno striscione largo almeno dieci colonne aperto su un telefono, non viene disegnato e i widget successivi occupano lo spazio. Resta nel documento: su uno schermo abbastanza grande torna dov’era. Gli spostamenti partono insieme e possono incrociarsi. Sotto l’ultimo widget c’è al massimo una schermata vuota. Durante il trascinamento la pagina non scorre e non si allunga.
 
 Il padding interno di un widget è uguale al gap della griglia. Lo sfondo del padding è quello della pagina; la pancia ha il grigio del tipo. L’ombra esterna è corta e fatta da più livelli.
 

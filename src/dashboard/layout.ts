@@ -1,14 +1,19 @@
-import { cellRect, rowsInViewport } from "../grid/metrics"
+import { cellRect, rowsInViewport, rowsOnScreen } from "../grid/metrics"
 import type { GridMetrics } from "../grid/metrics"
 import { pack } from "../grid/pack"
 import type { GridItem } from "../grid/pack"
 import type { Widget } from "../model/document"
-import { displaySize, isAllowedSize, widgetType } from "../widgets/catalog"
-import type { WidgetTypeId } from "../widgets/catalog"
+import {
+  displaySize,
+  fitsOnScreen,
+  fittingSizes,
+  isAllowedSize,
+} from "../widgets/catalog"
+import type { Screen, WidgetTypeId } from "../widgets/catalog"
 
-function toItems(widgets: Widget[], columns: number): GridItem[] {
+function toItems(widgets: Widget[], screen: Screen): GridItem[] {
   return widgets.map((widget) => {
-    const size = displaySize(widget.type, widget.w, widget.h, columns)
+    const size = displaySize(widget.type, widget.w, widget.h, screen)
     return { id: widget.id, w: size.w, h: size.h }
   })
 }
@@ -24,18 +29,18 @@ export function createdRows(
   metrics: GridMetrics,
   viewportHeight: number,
 ): number {
-  const columns = metrics.columns
+  const screen = { columns: metrics.columns, rows: rowsOnScreen(metrics, viewportHeight) }
   let bottom = 0
   for (const widget of widgets) {
-    const size = displaySize(widget.type, widget.w, widget.h, columns)
+    const size = displaySize(widget.type, widget.w, widget.h, screen)
     bottom = Math.max(bottom, Math.max(0, widget.y) + size.h)
   }
   return Math.max(bottom, 1) + rowsInViewport(metrics, viewportHeight)
 }
 
-export function ensurePositions(widgets: Widget[], columns: number): Widget[] {
+export function ensurePositions(widgets: Widget[], screen: Screen): Widget[] {
   if (widgets.every((widget) => widget.x >= 0 && widget.y >= 0)) return widgets
-  const placed = pack(toItems(widgets, columns), columns)
+  const placed = pack(toItems(widgets, screen), screen.columns)
   return widgets.map((widget) => {
     if (widget.x >= 0 && widget.y >= 0) return widget
     const place = placed.get(widget.id)
@@ -43,10 +48,153 @@ export function ensurePositions(widgets: Widget[], columns: number): Widget[] {
   })
 }
 
-function occupants(widgets: Widget[], columns: number): Occupant[] {
+function readingIndex(x: number, y: number, columns: number): number {
+  return y * columns + x
+}
+
+function coversCells(
+  occupied: Set<string>,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  columns: number,
+): boolean {
+  if (x < 0 || y < 0 || x + w > columns) return true
+  for (let row = 0; row < h; row += 1) {
+    for (let column = 0; column < w; column += 1) {
+      if (occupied.has(`${x + column},${y + row}`)) return true
+    }
+  }
+  return false
+}
+
+function wrapAfter(
+  occupied: Set<string>,
+  w: number,
+  h: number,
+  columns: number,
+  previous: { x: number; y: number; w: number; h: number } | null,
+): { x: number; y: number } {
+  if (previous) {
+    const beside = previous.x + previous.w
+    if (!coversCells(occupied, beside, previous.y, w, h, columns)) {
+      return { x: beside, y: previous.y }
+    }
+  }
+  let bottom = 0
+  for (const cell of occupied) {
+    bottom = Math.max(bottom, Number(cell.split(",")[1]) + 1)
+  }
+  for (let x = 0; x <= columns - w; x += 1) {
+    if (!coversCells(occupied, x, bottom, w, h, columns)) return { x, y: bottom }
+  }
+  return { x: 0, y: bottom + h }
+}
+
+function firstOpenCell(
+  occupied: Set<string>,
+  w: number,
+  h: number,
+  columns: number,
+  earliest: number,
+): { x: number; y: number } {
+  for (let y = 0; y < 400; y += 1) {
+    for (let x = 0; x <= columns - w; x += 1) {
+      if (readingIndex(x, y, columns) < earliest) continue
+      if (!coversCells(occupied, x, y, w, h, columns)) return { x, y }
+    }
+  }
+  return { x: 0, y: 400 }
+}
+
+// Visual layout for the current screen. Saved coordinates stay when every
+// widget still fits. A widget with no legal size on this screen is omitted,
+// and every widget after it flows into the freed space. Nothing here is saved.
+export function adaptLayout(widgets: Widget[], screen: Screen): Widget[] {
+  const columns = screen.columns
+  const ordered = [...widgets].sort(
+    (a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id),
+  )
+  const occupied = new Set<string>()
+  const placed = new Map<string, { x: number; y: number }>()
+  let earliest = 0
+  let packing = false
+  let previous: { x: number; y: number; w: number; h: number } | null = null
+  for (const widget of ordered) {
+    if (!fitsOnScreen(widget.type, screen)) {
+      packing = true
+      continue
+    }
+    const size = displaySize(widget.type, widget.w, widget.h, screen)
+    const savedFits =
+      !packing &&
+      readingIndex(widget.x, widget.y, columns) >= earliest &&
+      !coversCells(occupied, widget.x, widget.y, size.w, size.h, columns)
+    const wrapped = wrapAfter(occupied, size.w, size.h, columns, previous)
+    const spot = savedFits
+      ? { x: widget.x, y: widget.y }
+      : readingIndex(wrapped.x, wrapped.y, columns) >= earliest
+        ? wrapped
+        : firstOpenCell(occupied, size.w, size.h, columns, earliest)
+    if (!savedFits) packing = true
+    for (let row = 0; row < size.h; row += 1) {
+      for (let column = 0; column < size.w; column += 1) {
+        occupied.add(`${spot.x + column},${spot.y + row}`)
+      }
+    }
+    placed.set(widget.id, spot)
+    previous = { x: spot.x, y: spot.y, w: size.w, h: size.h }
+    earliest = readingIndex(spot.x, spot.y, columns) + 1
+  }
+  if (
+    placed.size === widgets.length &&
+    [...placed].every(([id, spot]) => {
+      const widget = widgets.find((item) => item.id === id)
+      return widget && widget.x === spot.x && widget.y === spot.y
+    })
+  ) {
+    return widgets
+  }
+  const visible = widgets.filter((widget) => placed.has(widget.id))
+  return visible.map((widget) => {
+    const spot = placed.get(widget.id)
+    if (!spot || (spot.x === widget.x && spot.y === widget.y)) return widget
+    return { ...widget, x: spot.x, y: spot.y }
+  })
+}
+
+// Keeps the stored position of every widget the gesture did not actually move,
+// so a screen reflow is not written back to the document.
+export function reconcileEdit(
+  saved: Widget[],
+  adapted: Widget[],
+  edited: Widget[],
+): Widget[] {
+  const adaptedById = new Map(adapted.map((widget) => [widget.id, widget]))
+  const editedById = new Map(edited.map((widget) => [widget.id, widget]))
+  const savedIds = new Set(saved.map((widget) => widget.id))
+  const merged = saved.map((original) => {
+    const prior = adaptedById.get(original.id)
+    const widget = editedById.get(original.id)
+    if (!prior || !widget) return original
+    if (
+      prior.x === widget.x &&
+      prior.y === widget.y &&
+      prior.w === widget.w &&
+      prior.h === widget.h
+    ) {
+      return original
+    }
+    return { ...original, x: widget.x, y: widget.y, w: widget.w, h: widget.h }
+  })
+  return [...merged, ...edited.filter((widget) => !savedIds.has(widget.id))]
+}
+
+function occupants(widgets: Widget[], screen: Screen): Occupant[] {
   return widgets.map((widget) => {
-    const size = displaySize(widget.type, widget.w, widget.h, columns)
-    const maxX = Math.max(0, columns - size.w)
+    const size = displaySize(widget.type, widget.w, widget.h, screen)
+    const maxX = Math.max(0, screen.columns - size.w)
     return {
       id: widget.id,
       x: Math.min(Math.max(0, widget.x), maxX),
@@ -101,16 +249,16 @@ export function placeDragged(
   id: string,
   x: number,
   y: number,
-  columns: number,
+  screen: Screen,
   maxBottom: number,
 ): Widget[] {
-  const laid = occupants(widgets, columns)
+  const laid = occupants(widgets, screen)
   const target = laid.find((item) => item.id === id)
   if (!target) return widgets
   const home = { ...target }
-  target.x = clamp(x, 0, columns - target.w)
+  target.x = clamp(x, 0, screen.columns - target.w)
   target.y = clamp(y, 0, Math.max(0, maxBottom - target.h))
-  settleCollisions(laid, target, home, columns, maxBottom)
+  settleCollisions(laid, target, home, screen.columns, maxBottom)
   return changed(widgets, laid) ? applyPlacement(widgets, laid) : widgets
 }
 
@@ -154,6 +302,43 @@ function settleCollisions(
     victim.y = spot.y
     blocked.push(victim)
     placed.push(victim)
+  }
+  separateOverlaps(items, mover.id, columns)
+}
+
+// One pass, after every victim has a spot. If two footprints still meet,
+// the later widget moves to the next free cell before the layout is shown.
+function separateOverlaps(items: Occupant[], moverId: string, columns: number): void {
+  const mover = items.find((item) => item.id === moverId)
+  if (!mover) return
+  const rest = items
+    .filter((item) => item.id !== moverId)
+    .sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id))
+  const accepted: Occupant[] = [mover]
+  for (const item of rest) {
+    if (accepted.some((other) => overlaps(item, other))) {
+      const lowest = accepted.reduce(
+        (bottom, other) => Math.max(bottom, other.y + other.h),
+        0,
+      )
+      const spot = nearestSpot(
+        item,
+        accepted,
+        [],
+        columns,
+        lowest + item.h + 8,
+        null,
+        mover,
+      )
+      item.x = spot.x
+      item.y = spot.y
+      let guard = 0
+      while (accepted.some((other) => overlaps(item, other)) && guard < 40) {
+        item.y += 1
+        guard += 1
+      }
+    }
+    accepted.push(item)
   }
 }
 
@@ -206,11 +391,8 @@ function nearestSpot(
       dragX,
       dragY,
       lastRow + 1,
-      lastRow + 4,
-    ) ?? {
-      x: 0,
-      y: lastRow + 1,
-    }
+      lastRow + 24,
+    ) ?? { x: 0, y: lastRow + 1 }
   )
 }
 
@@ -283,27 +465,27 @@ export function placeResized(
   widgets: Widget[],
   id: string,
   preview: { x: number; y: number; w: number; h: number },
-  columns: number,
+  screen: Screen,
 ): Widget[] {
-  const laid = occupants(widgets, columns)
+  const laid = occupants(widgets, screen)
   const target = laid.find((item) => item.id === id)
   if (!target) return widgets
-  target.x = clamp(preview.x, 0, columns - preview.w)
+  target.x = clamp(preview.x, 0, screen.columns - preview.w)
   target.y = Math.max(0, preview.y)
   target.w = preview.w
   target.h = preview.h
-  settleCollisions(laid, target, null, columns, roomBelow(laid))
+  settleCollisions(laid, target, null, screen.columns, roomBelow(laid))
   return applyPlacement(widgets, laid, { id, w: preview.w, h: preview.h })
 }
 
-export function placeNew(widgets: Widget[], widget: Widget, columns: number): Widget[] {
-  const laid = occupants([...widgets, widget], columns)
+export function placeNew(widgets: Widget[], widget: Widget, screen: Screen): Widget[] {
+  const laid = occupants([...widgets, widget], screen)
   const target = laid.find((item) => item.id === widget.id)
   if (!target) return [...widgets, widget]
-  const maxX = Math.max(0, columns - target.w)
+  const maxX = Math.max(0, screen.columns - target.w)
   target.x = Math.min(Math.max(0, widget.x), maxX)
   target.y = Math.max(0, widget.y)
-  settleCollisions(laid, target, null, columns, roomBelow(laid))
+  settleCollisions(laid, target, null, screen.columns, roomBelow(laid))
   return applyPlacement([...widgets, widget], laid)
 }
 
@@ -323,30 +505,42 @@ function edgePixels(span: number, cell: number, gap: number): number {
 function stepAxis(
   current: number,
   pointerPx: number,
+  previousPx: number,
   allowed: number[],
   cell: number,
   gap: number,
 ): number {
-  const stride = cell + gap
   const edge = edgePixels(current, cell, gap)
   const larger = allowed.filter((value) => value > current).sort((a, b) => a - b)[0]
   const smaller = allowed.filter((value) => value < current).sort((a, b) => b - a)[0]
-  if (larger !== undefined && pointerPx >= edge + stride * 0.62) return larger
-  if (smaller !== undefined && pointerPx <= edge - stride * 0.62) return smaller
+  const outward = pointerPx > previousPx + 1
+  const inward = pointerPx < previousPx - 1
+  // The next cell counts as soon as the pointer covers 20% of it.
+  if (larger !== undefined && outward && pointerPx >= edge + gap + cell * 0.2)
+    return larger
+  // A cell already in the widget drops once the pointer covers half of it or less.
+  if (smaller !== undefined && inward) {
+    const covered = (pointerPx - (edge - cell)) / cell
+    if (covered <= 0.5) return smaller
+  }
   return current
 }
 
 function resolvePair(
-  type: WidgetTypeId,
+  allowed: { w: number; h: number }[],
   w: number,
   h: number,
   current: { w: number; h: number },
-  maxW: number,
 ): { w: number; h: number } {
-  const allowed = widgetType(type).sizes.filter((size) => size.w <= maxW)
   if (allowed.length === 0) return current
   if (allowed.some((size) => size.w === w && size.h === h)) return { w, h }
-  const sharing = allowed.filter((size) => size.w === w || size.h === h)
+  const widthMoved = w !== current.w
+  const heightMoved = h !== current.h
+  const sharing = allowed.filter((size) => {
+    if (widthMoved && !heightMoved) return size.w === w
+    if (heightMoved && !widthMoved) return size.h === h
+    return size.w === w || size.h === h
+  })
   const pool = sharing.length > 0 ? sharing : allowed
   return closestSize(pool, w, h)
 }
@@ -368,53 +562,124 @@ export function snapPreview(
   metrics: GridMetrics,
   type: WidgetTypeId,
   current: { w: number; h: number },
+  rows: number,
+  previousLocal: { x: number; y: number } | null,
 ): Preview {
   const anchorRect = cellRect(metrics, anchor.x, anchor.y, anchor.w, anchor.h)
-  const allowed = widgetType(type).sizes.filter((size) => size.w <= metrics.columns)
-  const widths = allowed.map((size) => size.w)
-  const heights = allowed.map((size) => size.h)
-
-  if (corner === "br") {
-    const pixelW = Math.max(metrics.cell * 0.55, local.x - anchorRect.left)
-    const pixelH = Math.max(metrics.cell * 0.55, local.y - anchorRect.top)
-    const maxW = Math.max(1, metrics.columns - anchor.x)
-    const stepped = resolvePair(
-      type,
-      stepAxis(current.w, pixelW, widths, metrics.cell, metrics.gap),
-      stepAxis(current.h, pixelH, heights, metrics.cell, metrics.gap),
-      current,
-      maxW,
+  const screen = { columns: metrics.columns, rows }
+  const project = (
+    size: { w: number; h: number },
+    maxW: number,
+    pixelW: number,
+    pixelH: number,
+    previousW: number,
+    previousH: number,
+  ) => {
+    const allowed = fittingSizes(type, screen, maxW)
+    return resolvePair(
+      allowed,
+      stepAxis(
+        size.w,
+        pixelW,
+        previousW,
+        allowed.map((item) => item.w),
+        metrics.cell,
+        metrics.gap,
+      ),
+      stepAxis(
+        size.h,
+        pixelH,
+        previousH,
+        allowed.map((item) => item.h),
+        metrics.cell,
+        metrics.gap,
+      ),
+      size,
     )
-    const w = Math.min(stepped.w, maxW)
+  }
+
+  // A coupled size, such as a square, can jump on one axis and then shrink
+  // on the other, flipping every sample while the pointer stays still.
+  // Keep the larger size while the pointer is still past the line that grew it.
+  const stabilize = (
+    size: { w: number; h: number },
+    maxW: number,
+    pixelW: number,
+    pixelH: number,
+    previousW: number,
+    previousH: number,
+  ) => {
+    const forward = project(size, maxW, pixelW, pixelH, previousW, previousH)
+    const back = project(forward, maxW, pixelW, pixelH, previousW, previousH)
+    const cycling =
+      back.w === size.w &&
+      back.h === size.h &&
+      (forward.w !== size.w || forward.h !== size.h)
+    if (!cycling) return forward
+    const larger = forward.w * forward.h >= size.w * size.h ? forward : size
+    const smaller = larger === forward ? size : forward
+    const widthHeld =
+      larger.w > smaller.w &&
+      pixelW >=
+        edgePixels(smaller.w, metrics.cell, metrics.gap) +
+          metrics.gap +
+          metrics.cell * 0.2
+    const heightHeld =
+      larger.h > smaller.h &&
+      pixelH >=
+        edgePixels(smaller.h, metrics.cell, metrics.gap) +
+          metrics.gap +
+          metrics.cell * 0.2
+    return widthHeld || heightHeld ? larger : smaller
+  }
+
+  const finish = (
+    size: { w: number; h: number },
+    maxW: number,
+    originX: number,
+  ): Preview => {
+    const w = Math.min(size.w, maxW)
     return {
-      x: anchor.x,
+      x: originX,
       y: anchor.y,
       w,
-      h: stepped.h,
-      legal: isAllowedSize(type, w, stepped.h),
+      h: size.h,
+      legal: isAllowedSize(type, w, size.h) && w <= maxW && size.h <= rows,
     }
   }
 
-  const right = anchor.x + anchor.w
-  const pixelW = Math.max(
-    metrics.cell * 0.55,
-    anchorRect.left + anchorRect.width - local.x,
-  )
-  const pixelH = Math.max(metrics.cell * 0.55, local.y - anchorRect.top)
-  const maxW = Math.max(1, right)
-  const stepped = resolvePair(
-    type,
-    stepAxis(current.w, pixelW, widths, metrics.cell, metrics.gap),
-    stepAxis(current.h, pixelH, heights, metrics.cell, metrics.gap),
-    current,
-    maxW,
-  )
-  const w = Math.min(stepped.w, maxW)
-  return {
-    x: right - w,
-    y: anchor.y,
-    w,
-    h: stepped.h,
-    legal: isAllowedSize(type, w, stepped.h),
+  const relax = (
+    maxW: number,
+    pixelW: number,
+    pixelH: number,
+    previousW: number,
+    previousH: number,
+  ) => {
+    let size = { w: current.w, h: current.h }
+    for (let step = 0; step < 24; step += 1) {
+      const next = stabilize(size, maxW, pixelW, pixelH, previousW, previousH)
+      if (next.w === size.w && next.h === size.h) return next
+      size = next
+    }
+    return size
   }
+
+  const pointer = (point: { x: number; y: number }) =>
+    corner === "br"
+      ? { w: point.x - anchorRect.left, h: point.y - anchorRect.top }
+      : {
+          w: anchorRect.left + anchorRect.width - point.x,
+          h: point.y - anchorRect.top,
+        }
+  const pixel = pointer(local)
+  const previous = pointer(previousLocal ?? local)
+  if (corner === "br") {
+    const maxW = Math.max(1, metrics.columns - anchor.x)
+    return finish(relax(maxW, pixel.w, pixel.h, previous.w, previous.h), maxW, anchor.x)
+  }
+
+  const right = anchor.x + anchor.w
+  const maxW = Math.max(1, right)
+  const size = relax(maxW, pixel.w, pixel.h, previous.w, previous.h)
+  return finish(size, maxW, right - Math.min(size.w, maxW))
 }
