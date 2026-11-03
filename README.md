@@ -1,15 +1,15 @@
 # Dashboardy
 
-Dashboard a griglia, usabile con mouse e touch. I widget si trascinano, si ridimensionano e restano dove li lasci dopo un refresh. Non c’è login: ogni browser ha una propria copia.
+A grid dashboard you can use with a mouse or with touch. Widgets can be dragged and resized, and they stay where you leave them after a refresh. There is no login: each browser keeps its own copy.
 
-## Requisiti
+## Requirements
 
-- Node.js 20 o successivo
+- Node.js 20 or later
 - pnpm 10
-- PHP 8.1 o successivo, con PDO SQLite in locale e PDO MySQL sull’hosting
-- Un account FTP e un database MySQL su [Netsons](https://www.netsons.com) solo quando vuoi pubblicare
+- PHP 8.1 or later, with PDO SQLite locally and PDO MySQL on the host
+- An FTP account and a MySQL database on [Netsons](https://www.netsons.com), only when you want to publish
 
-## Avvio locale
+## Local start
 
 ```bash
 pnpm install
@@ -17,61 +17,61 @@ cp .env.example .env
 pnpm dev
 ```
 
-Apri `http://127.0.0.1:5173`. Vite serve l’interfaccia e inoltra `/api` al server PHP su `127.0.0.1:8080`. Il database locale è il file SQLite `storage/dashboard.sqlite`, creato al primo salvataggio. Se PHP non è raggiungibile, la dashboard resta utilizzabile con la copia in `localStorage`.
+Open `http://127.0.0.1:5173`. Vite serves the interface and forwards `/api` to the PHP server on `127.0.0.1:8080`. The local database is the SQLite file `storage/dashboard.sqlite`, created on the first save. If PHP cannot be reached, the dashboard stays usable from the copy in `localStorage`.
 
-## Script
+## Scripts
 
-| Script              | Cosa fa                                                           |
-| ------------------- | ----------------------------------------------------------------- |
-| `pnpm dev`          | Avvia Vite e l’API PHP                                            |
-| `pnpm typecheck`    | `tsc --noEmit`                                                    |
-| `pnpm lint`         | ESLint                                                            |
-| `pnpm format`       | Riscrive i file con Prettier                                      |
-| `pnpm format:check` | Controlla Prettier senza riscrivere                               |
-| `pnpm knip`         | File ed export non usati                                          |
-| `pnpm circular`     | Dipendenze circolari con madge                                    |
-| `pnpm ci`           | Esegue nell’ordine typecheck, lint, format:check, knip e circular |
-| `pnpm build`        | Build di produzione, con il prefisso `APP_BASE_PATH`              |
-| `pnpm deploy`       | Svuota la cartella FTP e carica la build appena fatta             |
-| `pnpm bad`          | `ci`, poi `build`, poi `deploy`                                   |
+| Script              | What it does                                                     |
+| ------------------- | ---------------------------------------------------------------- |
+| `pnpm dev`          | Starts Vite and the PHP API                                      |
+| `pnpm typecheck`    | `tsc --noEmit`                                                   |
+| `pnpm lint`         | ESLint                                                           |
+| `pnpm format`       | Rewrites files with Prettier                                     |
+| `pnpm format:check` | Checks Prettier without rewriting                                |
+| `pnpm knip`         | Unused files and exports                                         |
+| `pnpm circular`     | Circular dependencies with madge                                 |
+| `pnpm ci`           | Runs typecheck, lint, format:check, knip, and circular, in order |
+| `pnpm build`        | Production build, with the `APP_BASE_PATH` prefix                |
+| `pnpm deploy`       | Empties the FTP folder and uploads the build just produced       |
+| `pnpm bad`          | `ci`, then `build`, then `deploy`                                |
 
-`ci` parte da solo in due punti:
+`ci` also runs on its own in two places:
 
-- prima di un push, tramite il hook Husky `.husky/pre-push`
-- su GitHub, a ogni push sul branch `main` (`.github/workflows/ci.yml`)
+- before a push, through the Husky hook `.husky/pre-push`
+- on GitHub, on every push to the `main` branch (`.github/workflows/ci.yml`)
 
-Il deploy non gira su GitHub. Le password FTP e del database restano nel `.env` locale.
+Deploy does not run on GitHub. FTP and database passwords stay in the local `.env`.
 
-## Griglia
+## Grid
 
-La pagina è una griglia invisibile, con un numero pari di colonne. Un iPhone Pro Max ne mostra quattro in verticale e otto in orizzontale; un iPad mini sei e otto; un iPad da 9,7″ otto in verticale. Gli iPad più grandi e i desktop seguono la stessa proporzione. Il numero e la dimensione delle celle stanno in `src/grid/metrics.ts`.
+The page is an invisible grid with an even number of columns. An iPhone Pro Max shows four in portrait and eight in landscape; an iPad mini shows six and eight; a 9.7″ iPad shows eight in portrait. Larger iPads and desktops follow the same proportion. Cell count and cell size live in `src/grid/metrics.ts`.
 
-Intorno alla pagina c’è un padding di 12px sotto i 768px e di 24px sopra. Tra le celle ci sono 12px. Il raggio degli angoli è circa il 14% del lato, così le proporzioni restano uguali su ogni schermo.
+The page has 12px of padding below 768px and 24px above it. Cells are 12px apart. Corner radius is about 14% of the side, so the proportions stay the same on every screen.
 
-Le celle restano trasparenti. Durante un trascinamento o un ridimensionamento diventano grigie in 250ms. Se il mouse resta fermo due secondi su una cella vuota, quella cella mostra un più e apre il menu dei widget. Su touch, una pressione di circa 350ms su una zona vuota apre lo stesso menu.
+Cells stay transparent. During a drag or a resize they turn gray over 250ms. If the pointer rests for two seconds on an empty cell, that cell shows a plus and opens the widget menu. On touch, a press of about 350ms on an empty area opens the same menu.
 
-I widget di questa demo sono sei, tutti in scala di grigi. Compatto ha solo quattro misure fisse. Ampio va da 3 colonne fino a tutta la riga e da 2 a 5 righe. Libero e Quadrato possono crescere fino allo schermo: la larghezza massima è il numero di colonne della riga, l’altezza massima è il numero di righe che stanno in una schermata. Orizzontale resta più largo che alto, Verticale più alto che largo. L’ordine non compatta più i buchi: ogni widget resta nella cella in cui viene lasciato, anche se intorno ci sono righe vuote. Se lo schermo ha meno colonne, i widget che non ci stanno vanno a capo nell’ordine in cui si leggevano, dall’alto a sinistra, senza riscrivere le posizioni salvate. Un widget che non ha nessuna misura legale su quella griglia, per esempio uno striscione largo almeno dieci colonne aperto su un telefono, non viene disegnato e i widget successivi occupano lo spazio. Resta nel documento: su uno schermo abbastanza grande torna dov’era. Gli spostamenti partono insieme e possono incrociarsi. Sotto l’ultimo widget c’è al massimo una schermata vuota. Durante il trascinamento la pagina non scorre e non si allunga.
+This demo has six widgets, all in grayscale. Compact has only four fixed sizes. Wide runs from 3 columns up to the full row, and from 2 to 5 rows. Free and Square can grow up to the screen: the maximum width is the number of columns in the row, and the maximum height is the number of rows that fit on one screen. Horizontal stays wider than it is tall, and Vertical stays taller than it is wide. Packing no longer closes the gaps: each widget stays in the cell where it is dropped, even when empty rows sit around it. If the screen has fewer columns, widgets that do not fit wrap in reading order, from the top left, without rewriting the saved positions. A widget with no legal size on that grid — for example a banner at least ten columns wide, opened on a phone — is not drawn, and the widgets after it take the space. It stays in the document: on a large enough screen it returns to where it was. Moves start together and can cross. Below the last widget there is at most one empty screen. During a drag the page does not scroll and does not grow.
 
-Il padding interno di un widget è uguale al gap della griglia. Lo sfondo del padding è quello della pagina; la pancia ha il grigio del tipo. L’ombra esterna è corta e fatta da più livelli.
+A widget’s inner padding equals the grid gap. The padding background is the page background; the body uses the gray of its type. The outer shadow is short and built from several layers.
 
-Con il mouse, il trascinamento parte subito dalla pancia del widget, che si solleva un poco. Se il puntatore resta fermo mezzo secondo nel padding compaiono gli angoli curvi in basso e il pulsante per eliminare. Il resize si aggancia alle misure consentite e, al rilascio, il widget resta sulla misura già mostrata. Se il nuovo ingombro copre altri widget, quelli si spostano a destra o sulla riga sotto.
+With a mouse, a drag starts at once from the widget body, which lifts slightly. If the pointer rests for half a second in the padding, the curved bottom corners and the delete button appear. Resize snaps to the allowed sizes and, on release, the widget keeps the size already shown. If the new footprint covers other widgets, those move to the right or onto the row below.
 
-Su touch, una pressione di circa 350ms al centro trascina, sul bordo inferiore ridimensiona, sul bordo superiore mostra i controlli.
+On touch, a press of about 350ms in the center drags, a press on the bottom edge resizes, and a press on the top edge shows the controls.
 
-## Pubblicare su Netsons
+## Publishing on Netsons
 
-Netsons usa cPanel e Apache. La cartella pubblica del dominio principale è `public_html`. PHP e MySQL stanno sulla stessa macchina: dal PHP il host del database è `localhost`, porta `3306`. I nomi di database e utente creati nel cPanel hanno il prefisso dell’account, per esempio `account_dashboard` e `account_dash`. L’accesso MySQL remoto non serve.
+Netsons uses cPanel and Apache. The public folder of the main domain is `public_html`. PHP and MySQL run on the same machine: from PHP the database host is `localhost`, port `3306`. Database and user names created in cPanel carry the account prefix, for example `account_dashboard` and `account_dash`. Remote MySQL access is not required.
 
-1. In cPanel → Database MySQL crea il database, l’utente e associa l’utente al database con tutti i privilegi. La tabella `layouts` viene creata dalla prima richiesta all’API.
-2. In cPanel → MultiPHP Manager imposta PHP 8.1 o successivo per il dominio.
-3. Nel `.env` di produzione imposta:
-   - `APP_BASE_PATH=/dashboard/` se il sito deve vivere in `https://dominio/dashboard/`
-   - `FTP_HOST` con il nome server letto in cPanel, porta `21`
-   - `FTP_USER` e `FTP_PASSWORD`
-   - `FTP_REMOTE_DIR=public_html/dashboard`, oppure solo `dashboard` se l’utente FTP è già confinato in `public_html`
-   - `DB_DRIVER=mysql`, `DB_HOST=localhost`, e nome, utente e password del database
-4. Lancia `pnpm bad`.
+1. In cPanel → MySQL Databases, create the database and the user, then assign the user to the database with all privileges. The `layouts` table is created by the first request to the API.
+2. In cPanel → MultiPHP Manager, set PHP 8.1 or later for the domain.
+3. In the production `.env`, set:
+   - `APP_BASE_PATH=/dashboard/` if the site should live at `https://domain/dashboard/`
+   - `FTP_HOST` to the server name shown in cPanel, port `21`
+   - `FTP_USER` and `FTP_PASSWORD`
+   - `FTP_REMOTE_DIR=public_html/dashboard`, or only `dashboard` if the FTP user is already confined to `public_html`
+   - `DB_DRIVER=mysql`, `DB_HOST=localhost`, plus the database name, user, and password
+4. Run `pnpm bad`.
 
-Ogni deploy cancella tutto il contenuto di `FTP_REMOTE_DIR` e poi carica `index.html`, gli asset, `api/` e `.htaccess`. Non tocca le cartelle fuori da quel percorso, e si rifiuta di svuotare `public_html` da sola. Lo script parte solo dopo che `ci` e `build` sono riusciti. Se l’upload si interrompe, la cartella può restare vuota fino al deploy successivo.
+Every deploy deletes everything inside `FTP_REMOTE_DIR`, then uploads `index.html`, the assets, `api/`, and `.htaccess`. It leaves folders outside that path alone, and it refuses to empty `public_html` by itself. The script runs only after `ci` and `build` have succeeded. If the upload is interrupted, the folder can stay empty until the next deploy.
 
-L’`.htaccess` generato usa `RewriteBase` con `APP_BASE_PATH`, lascia passare `api/` e rimanda le altre rotte a `index.html`. `config.php` non è scaricabile dal browser.
+The generated `.htaccess` uses `RewriteBase` with `APP_BASE_PATH`, lets `api/` through, and sends every other route to `index.html`. `config.php` cannot be downloaded from the browser.
