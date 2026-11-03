@@ -1,0 +1,10 @@
+---
+description: Keep README.md in English
+alwaysApply: true
+---
+
+# README stays in English
+
+`README.md` is written in English. Every edit keeps the whole file in English: headings, prose, tables, lists, and comments inside examples.
+
+Do not add Italian, or any other language, to the README. When the product changes, update the English text in place. Translate any draft that arrives in another language before writing it into the file.
