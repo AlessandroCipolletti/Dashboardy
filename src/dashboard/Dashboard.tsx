@@ -28,6 +28,10 @@ import {
 } from "./layout"
 import { useGestures } from "./useGestures"
 import { WidgetCard } from "./WidgetCard"
+import { WidgetSettingsDialog } from "./WidgetSettingsDialog"
+import { ImageGallery } from "../widgets/image-gallery/ImageGallery"
+import { GallerySettingsForm } from "../widgets/image-gallery/GallerySettingsForm"
+import { gallerySettings, type GallerySettings } from "../widgets/image-gallery/settings"
 
 const EXIT_FADE_MS = 300
 
@@ -46,6 +50,7 @@ type ExitSnapshot = {
     br: { width: boolean; height: boolean }
   }
   edgeLimit?: { left: boolean; right: boolean; bottom: boolean }
+  gallery: GallerySettings | null
   style: CSSProperties
 }
 
@@ -112,6 +117,7 @@ export function Dashboard() {
   const widgetsRef = useRef(document.widgets)
   const authoredRef = useRef(document.widgets)
   const placementsRef = useRef(new Map<string, Placement>())
+  const openSettingsRef = useRef<(id: string) => void>(() => {})
 
   const gestures = useGestures({
     canvasRef,
@@ -120,7 +126,21 @@ export function Dashboard() {
     authoredRef,
     placementsRef,
     commit,
+    openSettingsRef,
   })
+  const [settingsId, setSettingsId] = useState<string | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState<GallerySettings | null>(null)
+  useLayoutEffect(() => {
+    openSettingsRef.current = (id: string) => {
+      const widget = document.widgets.find((item) => item.id === id)
+      if (!widget || widget.type !== "image-gallery") return
+      setSettingsId(id)
+      setSettingsDraft(gallerySettings(widget.settings))
+    }
+  }, [document.widgets])
+  const settingsWidget = document.widgets.find(
+    (item) => item.id === settingsId && item.type === "image-gallery",
+  )
 
   const columns = metrics.columns
   const screen = useMemo(
@@ -414,6 +434,7 @@ export function Dashboard() {
             bottom: atHeight,
           }
         : undefined,
+      gallery: widget.type === "image-gallery" ? gallerySettings(widget.settings) : null,
       style: {
         ...rect,
         borderRadius: metrics.radius,
@@ -479,8 +500,33 @@ export function Dashboard() {
           axes={card.axes}
           edgeLimit={fading ? undefined : card.edgeLimit}
           leaving={fading}
+          hasSettings={!!card.gallery}
           style={card.style}
-        />
+        >
+          {card.gallery ? (
+            <ImageGallery
+              id={card.id}
+              urls={card.gallery.urls}
+              index={card.gallery.index}
+              slideshow={card.gallery.slideshow}
+              duration={card.gallery.duration}
+              paused={fading || settingsId === card.id || card.lifting || card.resizing}
+              onIndex={(index) => {
+                if (fading || index === card.gallery?.index) return
+                commit((current) => ({
+                  ...current,
+                  widgets: current.widgets.map((widget) => {
+                    if (widget.id !== card.id || widget.type !== "image-gallery")
+                      return widget
+                    const settings = gallerySettings(widget.settings)
+                    if (settings.index === index) return widget
+                    return { ...widget, settings: { ...settings, index } }
+                  }),
+                }))
+              }}
+            />
+          ) : null}
+        </WidgetCard>
       ))}
       {gestures.menu ? (
         <AddMenu
@@ -488,6 +534,35 @@ export function Dashboard() {
           top={gestures.menu.top}
           onSelect={gestures.chooseType}
         />
+      ) : null}
+      {settingsWidget && settingsDraft ? (
+        <WidgetSettingsDialog
+          title={widgetType("image-gallery").name}
+          onClose={() => {
+            setSettingsId(null)
+            setSettingsDraft(null)
+          }}
+          onSave={() => {
+            const saved = gallerySettings(settingsDraft)
+            const id = settingsId
+            setSettingsId(null)
+            setSettingsDraft(null)
+            commit((current) => ({
+              ...current,
+              widgets: current.widgets.map((widget) =>
+                widget.id === id && widget.type === "image-gallery"
+                  ? { ...widget, settings: saved }
+                  : widget,
+              ),
+            }))
+          }}
+        >
+          <GallerySettingsForm
+            key={settingsId}
+            initial={settingsDraft}
+            onChange={setSettingsDraft}
+          />
+        </WidgetSettingsDialog>
       ) : null}
     </main>
   )

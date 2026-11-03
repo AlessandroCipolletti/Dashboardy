@@ -56,7 +56,7 @@ export function GridGuides({
             type="button"
             className="guide is-plus"
             data-plus={`${x},${y}`}
-            aria-label="Aggiungi widget"
+            aria-label="Add widget"
             style={style}
           >
             <PlusIcon />

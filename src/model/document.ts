@@ -1,4 +1,8 @@
 import { isWidgetTypeId, type WidgetTypeId } from "../widgets/catalog"
+import {
+  isGallerySettings,
+  type GallerySettings,
+} from "../widgets/image-gallery/settings"
 
 export type Widget = {
   id: string
@@ -7,6 +11,7 @@ export type Widget = {
   h: number
   x: number
   y: number
+  settings?: GallerySettings
 }
 
 export type DashboardDocument = {
@@ -102,7 +107,9 @@ export function isDocument(value: unknown): value is DashboardDocument {
       widget.x >= -1 &&
       widget.y >= -1 &&
       widget.x <= 400 &&
-      widget.y <= 400
+      widget.y <= 400 &&
+      (widget.settings === undefined ||
+        (widget.type === "image-gallery" && isGallerySettings(widget.settings)))
     )
   })
 }

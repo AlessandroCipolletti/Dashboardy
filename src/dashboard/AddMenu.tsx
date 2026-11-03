@@ -34,7 +34,7 @@ export function AddMenu({ left, top, onSelect }: AddMenuProps) {
       ref={ref}
       className="add-menu"
       role="menu"
-      aria-label="Aggiungi widget"
+      aria-label="Add widget"
       style={{ left: position.left, top: position.top }}
     >
       {catalog.map((type) => (

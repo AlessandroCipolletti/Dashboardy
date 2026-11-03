@@ -18,7 +18,69 @@ const WIDGET_TYPES = [
     'poster',
     'panorama',
     'banner',
+    'image-gallery',
 ];
+
+const GALLERY_DURATIONS = [5, 10, 20, 30, 45, 60];
+
+function sanitize_gallery_settings(mixed $settings): ?array
+{
+    if (!is_array($settings)) {
+        return null;
+    }
+    $urls = [];
+    $rawUrls = $settings['urls'] ?? [];
+    if (!is_array($rawUrls)) {
+        return null;
+    }
+    foreach ($rawUrls as $url) {
+        if (!is_string($url)) {
+            return null;
+        }
+        $trimmed = trim($url);
+        if ($trimmed === '') {
+            continue;
+        }
+        if (strlen($trimmed) > 2048) {
+            return null;
+        }
+        $urls[] = $trimmed;
+    }
+    $index = $settings['index'] ?? 0;
+    if (!is_int($index) && !(is_numeric($index) && (int) $index == $index)) {
+        return null;
+    }
+    $index = (int) $index;
+    if ($index < 0) {
+        return null;
+    }
+    if (count($urls) === 0) {
+        $index = 0;
+    } elseif ($index >= count($urls)) {
+        $index = count($urls) - 1;
+    }
+    if (!array_key_exists('slideshow', $settings)) {
+        $slideshow = false;
+    } elseif (!is_bool($settings['slideshow'])) {
+        return null;
+    } else {
+        $slideshow = $settings['slideshow'];
+    }
+    $duration = $settings['duration'] ?? 5;
+    if (!is_int($duration) && !(is_numeric($duration) && (int) $duration == $duration)) {
+        return null;
+    }
+    $duration = (int) $duration;
+    if (!in_array($duration, GALLERY_DURATIONS, true)) {
+        return null;
+    }
+    return [
+        'urls' => $urls,
+        'index' => $index,
+        'slideshow' => $slideshow,
+        'duration' => $duration,
+    ];
+}
 
 function fail(int $status, string $error): void
 {
@@ -69,7 +131,20 @@ function sanitize_document(mixed $document): ?array
         if ($w < 1 || $h < 1 || $w > 80 || $h > 80 || $x < -1 || $y < -1 || $x > 400 || $y > 400) {
             return null;
         }
-        $widgets[] = ['id' => $id, 'type' => $type, 'w' => $w, 'h' => $h, 'x' => $x, 'y' => $y];
+        $stored = ['id' => $id, 'type' => $type, 'w' => $w, 'h' => $h, 'x' => $x, 'y' => $y];
+        if ($type === 'image-gallery') {
+            $settings = sanitize_gallery_settings($widget['settings'] ?? [
+                'urls' => [],
+                'index' => 0,
+                'slideshow' => false,
+                'duration' => 5,
+            ]);
+            if ($settings === null) {
+                return null;
+            }
+            $stored['settings'] = $settings;
+        }
+        $widgets[] = $stored;
     }
     return [
         'version' => 1,

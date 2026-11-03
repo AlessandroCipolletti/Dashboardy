@@ -2,6 +2,7 @@ import type { GridMetrics } from "../grid/metrics"
 import { rowsOnScreen } from "../grid/metrics"
 
 export const widgetTypeIds = [
+  "image-gallery",
   "compact",
   "wide",
   "free",
@@ -41,6 +42,7 @@ type WidgetType = {
   gray: string
   size: SizeRule
   sizeHint: string
+  preferred?: Size
 }
 
 function span(min: number, max: SpanEnd): Span {
@@ -49,8 +51,16 @@ function span(min: number, max: SpanEnd): Span {
 
 export const catalog: WidgetType[] = [
   {
+    id: "image-gallery",
+    name: "Image gallery",
+    gray: "#d0d0d0",
+    size: { w: span(2, "screen"), h: span(2, "screen") },
+    sizeHint: "From 2×2 up to the screen",
+    preferred: { w: 4, h: 3 },
+  },
+  {
     id: "compact",
-    name: "Compatto",
+    name: "Compact",
     gray: "#f4f4f4",
     size: {
       sizes: [
@@ -64,49 +74,49 @@ export const catalog: WidgetType[] = [
   },
   {
     id: "wide",
-    name: "Ampio",
+    name: "Wide",
     gray: "#c8c8c8",
     size: { w: span(3, "screen"), h: span(2, 5) },
-    sizeHint: "larghezza da 3 a tutta la riga · altezza 2–5",
+    sizeHint: "Width from 3 to the full row · height 2–5",
   },
   {
     id: "free",
-    name: "Libero",
+    name: "Free",
     gray: "#dedede",
     size: { w: span(1, "screen"), h: span(1, "screen") },
-    sizeHint: "da 1×1 a tutto lo schermo",
+    sizeHint: "From 1×1 up to the screen",
   },
   {
     id: "horizontal",
-    name: "Orizzontale",
+    name: "Horizontal",
     gray: "#bdbdbd",
     size: { w: span(2, "screen"), h: span(1, 3), accept: (w, h) => w > h },
-    sizeHint: "più largo che alto, fino alla riga",
+    sizeHint: "Wider than tall, up to the full row",
   },
   {
     id: "vertical",
-    name: "Verticale",
+    name: "Vertical",
     gray: "#b0b0b0",
     size: { w: span(1, 3), h: span(2, "screen"), accept: (w, h) => h > w },
-    sizeHint: "più alto che largo, fino allo schermo",
+    sizeHint: "Taller than wide, up to the screen",
   },
   {
     id: "square",
-    name: "Quadrato",
+    name: "Square",
     gray: "#d2d2d2",
     size: { w: span(1, "screen"), h: span(1, "screen"), accept: (w, h) => w === h },
-    sizeHint: "quadrati da 1 fino allo schermo",
+    sizeHint: "Squares from 1 up to the screen",
   },
   {
     id: "band",
-    name: "Fascia",
+    name: "Band",
     gray: "#e4e4e4",
     size: { w: span(2, "screen"), h: span(1, 1) },
-    sizeHint: "alta 1 · larga da 2 a tutta la riga",
+    sizeHint: "1 row tall · width from 2 to the full row",
   },
   {
     id: "block",
-    name: "Blocco",
+    name: "Block",
     gray: "#b7b7b7",
     size: {
       sizes: [
@@ -119,14 +129,14 @@ export const catalog: WidgetType[] = [
   },
   {
     id: "tower",
-    name: "Torre",
+    name: "Tower",
     gray: "#9e9e9e",
     size: { w: span(1, 2), h: span(4, "screen"), accept: (w, h) => h > w },
-    sizeHint: "larga 1–2 · alta da 4 allo schermo",
+    sizeHint: "Width 1–2 · height from 4 to the screen",
   },
   {
     id: "poster",
-    name: "Manifesto",
+    name: "Poster",
     gray: "#8a8a8a",
     size: {
       sizes: [
@@ -134,21 +144,21 @@ export const catalog: WidgetType[] = [
         { w: 6, h: 4 },
       ],
     },
-    sizeHint: "solo 6×3 · 6×4",
+    sizeHint: "Only 6×3 · 6×4",
   },
   {
     id: "panorama",
     name: "Panorama",
     gray: "#7a7a7a",
     size: { w: span(8, "screen"), h: span(2, 4) },
-    sizeHint: "larga da 8 a tutta la riga · alta 2–4",
+    sizeHint: "Width from 8 to the full row · height 2–4",
   },
   {
     id: "banner",
-    name: "Striscione",
+    name: "Banner",
     gray: "#6a6a6a",
     size: { w: span(10, "screen"), h: span(2, 3) },
-    sizeHint: "larga da 10 a tutta la riga · alta 2–3",
+    sizeHint: "Width from 10 to the full row · height 2–3",
   },
 ]
 
@@ -237,10 +247,22 @@ function smallest(sizes: Size[]): Size {
   })
 }
 
+function preferredSize(type: WidgetTypeId, sizes: Size[]): Size | null {
+  const preferred = widgetType(type).preferred
+  if (!preferred || sizes.length === 0) return null
+  if (sizes.some((size) => size.w === preferred.w && size.h === preferred.h))
+    return preferred
+  return closest(sizes, preferred.w, preferred.h)
+}
+
 export function defaultSize(type: WidgetTypeId, screen: Screen): Size {
   const fitting = fittingSizes(type, screen)
-  if (fitting.length > 0) return smallest(fitting)
-  return smallest(fittingSizes(type, { columns: 80, rows: 80 }))
+  return (
+    preferredSize(type, fitting) ??
+    (fitting.length > 0 ? smallest(fitting) : null) ??
+    preferredSize(type, fittingSizes(type, { columns: 80, rows: 80 })) ??
+    smallest(fittingSizes(type, { columns: 80, rows: 80 }))
+  )
 }
 
 export function canResize(type: WidgetTypeId, screen: Screen): boolean {

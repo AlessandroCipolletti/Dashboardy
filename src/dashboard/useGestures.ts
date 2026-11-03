@@ -7,6 +7,7 @@ import type { GridMetrics } from "../grid/metrics"
 import type { DashboardDocument, Widget } from "../model/document"
 import { canResize, defaultSize, screenLimits } from "../widgets/catalog"
 import type { WidgetTypeId } from "../widgets/catalog"
+import { defaultGallerySettings } from "../widgets/image-gallery/settings"
 import {
   createdRows,
   placeDragged,
@@ -91,6 +92,13 @@ type Pending =
       startY: number
       cell: { x: number; y: number }
     }
+  | {
+      kind: "swipe"
+      pointerId: number
+      id: string
+      startX: number
+      startY: number
+    }
 
 function closest(target: EventTarget | null, selector: string): HTMLElement | null {
   if (!(target instanceof Element)) return null
@@ -105,8 +113,17 @@ export function useGestures(input: {
   authoredRef: RefObject<Widget[]>
   placementsRef: RefObject<Map<string, Placement>>
   commit: (recipe: (document: DashboardDocument) => DashboardDocument) => void
+  openSettingsRef: RefObject<(id: string) => void>
 }) {
-  const { canvasRef, metricsRef, widgetsRef, authoredRef, placementsRef, commit } = input
+  const {
+    canvasRef,
+    metricsRef,
+    widgetsRef,
+    authoredRef,
+    placementsRef,
+    commit,
+    openSettingsRef,
+  } = input
   const [mode, setMode] = useState<Mode>({ type: "idle" })
   const [handlesFor, setHandlesFor] = useState<string | null>(null)
   const [selectedId, setSelected] = useState<string | null>(null)
@@ -393,6 +410,15 @@ export function useGestures(input: {
         return
       }
 
+      const settingsButton = closest(event.target, "[data-settings]")
+      if (settingsButton?.dataset.settings) {
+        event.preventDefault()
+        openSettingsRef.current(settingsButton.dataset.settings)
+        return
+      }
+
+      if (closest(event.target, "[data-gallery-nav], .settings-layer")) return
+
       const cornerEl = closest(event.target, "[data-corner]")
       const widgetEl = closest(event.target, "[data-widget-id]")
       if (cornerEl && widgetEl?.dataset.widgetId && event.pointerType === "mouse") {
@@ -651,6 +677,12 @@ export function useGestures(input: {
       scrollFrame = window.requestAnimationFrame(edgeScroll)
     }
 
+    const emitSwipe = (id: string, phase: "move" | "end", dx: number) => {
+      canvas
+        .querySelector<HTMLElement>(`[data-gallery="${CSS.escape(id)}"]`)
+        ?.dispatchEvent(new CustomEvent("gallery-swipe", { detail: { phase, dx } }))
+    }
+
     const onPointerMove = (event: PointerEvent) => {
       const pending = pendingRef.current
       if (pending?.kind === "press" && pending.pointerId === event.pointerId) {
@@ -674,11 +706,42 @@ export function useGestures(input: {
         return
       }
       if (pending && pending.pointerId === event.pointerId) {
+        if (pending.kind === "swipe") {
+          event.preventDefault()
+          emitSwipe(pending.id, "move", event.clientX - pending.startX)
+          return
+        }
         if (pending.kind === "empty") {
           const cell = emptyCellAt(event.clientX, event.clientY)
           const same = cell && cell.x === pending.cell.x && cell.y === pending.cell.y
           if (same) event.preventDefault()
           else clearHold()
+        } else if (pending.kind === "widget" && pending.zone === "belly") {
+          const dx = event.clientX - pending.startX
+          const dy = event.clientY - pending.startY
+          const gallery = closest(event.target, "[data-gallery]")
+          const slides = Number(gallery?.dataset.slides ?? "0")
+          if (
+            event.pointerType !== "mouse" &&
+            gallery?.dataset.gallery === pending.id &&
+            slides >= 2 &&
+            Math.abs(dx) > MOVE_CANCEL_PX &&
+            Math.abs(dx) > Math.abs(dy)
+          ) {
+            event.preventDefault()
+            if (holdTimer.current !== null) window.clearTimeout(holdTimer.current)
+            holdTimer.current = null
+            pendingRef.current = {
+              kind: "swipe",
+              pointerId: pending.pointerId,
+              id: pending.id,
+              startX: pending.startX,
+              startY: pending.startY,
+            }
+            emitSwipe(pending.id, "move", dx)
+            return
+          }
+          if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) clearHold()
         } else {
           const distance = Math.hypot(
             event.clientX - pending.startX,
@@ -716,8 +779,20 @@ export function useGestures(input: {
         flushLayout()
       }
       const pending = pendingRef.current
+      if (pending?.kind === "swipe" && pending.pointerId === event.pointerId) {
+        emitSwipe(pending.id, "end", commitGesture ? event.clientX - pending.startX : 0)
+        clearHold()
+        return
+      }
       if (pending && pending.pointerId === event.pointerId) {
         if (commitGesture && pending.kind === "press") setSelected(pending.id)
+        if (commitGesture && pending.kind === "widget") {
+          const distance = Math.hypot(
+            event.clientX - pending.startX,
+            event.clientY - pending.startY,
+          )
+          if (distance <= MOVE_CANCEL_PX) setSelected(pending.id)
+        }
         clearHold()
       }
       const active = modeRef.current
@@ -781,6 +856,14 @@ export function useGestures(input: {
       }
     }
 
+    const onDoubleClick = (event: MouseEvent) => {
+      if (modeRef.current.type !== "idle") return
+      if (closest(event.target, "[data-widget-id], .add-menu, .settings-layer")) return
+      const cell = emptyCellAt(event.clientX, event.clientY)
+      if (!cell) return
+      event.preventDefault()
+      openMenu(cell, event.clientX, event.clientY)
+    }
     const onPointerUp = (event: PointerEvent) => finish(event, true)
     const onPointerCancel = (event: PointerEvent) => finish(event, false)
     const onContextMenu = (event: Event) => event.preventDefault()
@@ -793,6 +876,7 @@ export function useGestures(input: {
       if (modeRef.current.type !== "idle") event.preventDefault()
     }
     canvas.addEventListener("pointerdown", onPointerDown)
+    canvas.addEventListener("dblclick", onDoubleClick)
     canvas.addEventListener("contextmenu", onContextMenu)
     window.addEventListener("pointermove", onPointerMove, { passive: false })
     window.addEventListener("pointerup", onPointerUp)
@@ -807,6 +891,7 @@ export function useGestures(input: {
       clearHandleTimer()
       clearPlusTimer()
       canvas.removeEventListener("pointerdown", onPointerDown)
+      canvas.removeEventListener("dblclick", onDoubleClick)
       canvas.removeEventListener("contextmenu", onContextMenu)
       window.removeEventListener("pointermove", onPointerMove)
       window.removeEventListener("pointerup", onPointerUp)
@@ -814,7 +899,7 @@ export function useGestures(input: {
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("wheel", onWheel)
     }
-  }, [authoredRef, canvasRef, metricsRef, placementsRef, widgetsRef])
+  }, [authoredRef, canvasRef, metricsRef, openSettingsRef, placementsRef, widgetsRef])
 
   const closeMenu = () => setMenu(null)
 
@@ -832,6 +917,7 @@ export function useGestures(input: {
         h: size.h,
         x: cell.x,
         y: cell.y,
+        ...(type === "image-gallery" ? { settings: defaultGallerySettings() } : {}),
       }
       const adapted = widgetsRef.current
       const edited = placeNew(adapted, widget, screen)

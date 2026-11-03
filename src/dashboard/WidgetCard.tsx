@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react"
+import type { CSSProperties, ReactNode } from "react"
 
 type Corner = "bl" | "br"
 
@@ -15,6 +15,8 @@ type WidgetCardProps = {
   axes: { bl: ResizeAxes; br: ResizeAxes }
   edgeLimit?: { left: boolean; right: boolean; bottom: boolean }
   leaving?: boolean
+  hasSettings?: boolean
+  children?: ReactNode
   style: CSSProperties
 }
 
@@ -79,13 +81,13 @@ function ResizeHandle({
   height: boolean
 }) {
   if (locked || !width || !height) return null
-  const side = corner === "bl" ? "sinistra" : "destra"
+  const side = corner === "bl" ? "left" : "right"
   return (
     <button
       type="button"
       className={["handle", `handle-${corner}`].join(" ")}
       data-corner={corner}
-      aria-label={`Ridimensiona ${name} dall'angolo in basso a ${side}`}
+      aria-label={`Resize ${name} from the bottom-${side} corner`}
     >
       <HandleIcon corner={corner} />
     </button>
@@ -105,6 +107,8 @@ export function WidgetCard({
   axes,
   edgeLimit,
   leaving,
+  hasSettings,
+  children,
   style,
 }: WidgetCardProps) {
   const className = [
@@ -127,15 +131,35 @@ export function WidgetCard({
       aria-hidden={leaving || undefined}
       style={{ ...style, boxShadow: edgeShadow(edgeLimit) }}
     >
-      <div className="belly" style={{ background: gray }}>
-        <span className="name">{name}</span>
-        <span className="meta">{label}</span>
+      <div
+        className={children ? "belly is-custom" : "belly"}
+        style={{ background: gray }}
+      >
+        {children ?? (
+          <>
+            <span className="name">{name}</span>
+            <span className="meta">{label}</span>
+          </>
+        )}
       </div>
+      {hasSettings ? (
+        <button
+          type="button"
+          className="settings"
+          data-settings={id}
+          aria-label={`Settings for ${name}`}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58z" />
+            <circle cx="12" cy="12" r="3.1" />
+          </svg>
+        </button>
+      ) : null}
       <button
         type="button"
         className="delete"
         data-delete={id}
-        aria-label={`Elimina ${name}`}
+        aria-label={`Delete ${name}`}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4 4 L12 12 M12 4 L4 12" />

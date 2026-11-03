@@ -209,7 +209,8 @@ button {
 }
 
 .handle,
-.delete {
+.delete,
+.settings {
   position: absolute;
   z-index: 3;
   display: grid;
@@ -226,7 +227,8 @@ button {
 .widget.is-chrome .handle,
 .widget.is-chrome .delete,
 .widget.is-selected .handle,
-.widget.is-selected .delete {
+.widget.is-selected .delete,
+.widget.is-selected .settings {
   opacity: 1;
   pointer-events: auto;
 }
@@ -236,7 +238,13 @@ button {
 .widget.is-selected.is-dragging .delete,
 .widget.is-selected.is-resizing .delete,
 .widget.is-chrome.is-dragging .delete,
-.widget.is-chrome.is-resizing .delete {
+.widget.is-chrome.is-resizing .delete,
+.widget.is-dragging .settings,
+.widget.is-resizing .settings,
+.widget.is-selected.is-dragging .settings,
+.widget.is-selected.is-resizing .settings,
+.widget.is-chrome.is-dragging .settings,
+.widget.is-chrome.is-resizing .settings {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -249,7 +257,8 @@ button {
 }
 
 .handle svg,
-.delete svg {
+.delete svg,
+.settings svg {
   fill: none;
   stroke: #1a1a1a;
   stroke-width: 5;
@@ -274,9 +283,14 @@ button {
   cursor: nwse-resize;
 }
 
-.delete {
+.belly.is-custom {
+  padding: 0;
+  overflow: hidden;
+}
+
+.delete,
+.settings {
   top: 0;
-  right: 0;
   width: 28px;
   height: 28px;
   border-radius: 999px;
@@ -288,10 +302,30 @@ button {
   cursor: pointer;
 }
 
+.delete {
+  right: 0;
+}
+
+.settings {
+  right: 40px;
+}
+
 .delete svg {
   width: 12px;
   height: 12px;
   stroke-width: 2;
+}
+
+.settings svg {
+  width: 14px;
+  height: 14px;
+  fill: #1a1a1a;
+  stroke: none;
+}
+
+.settings svg circle {
+  fill: #f4f4f4;
+  stroke: none;
 }
 
 .add-menu {
@@ -347,4 +381,387 @@ button {
   flex: none;
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%);
+}
+
+@keyframes settings-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.settings-layer {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgb(20 20 20 / 28%);
+  animation: settings-in 300ms ease;
+}
+
+.settings-dialog {
+  display: flex;
+  width: min(480px, 100%);
+  max-height: min(760px, 100%);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 22px;
+  background: #f3f3f3;
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 5%),
+    0 12px 28px rgb(0 0 0 / 12%),
+    0 32px 64px rgb(0 0 0 / 14%);
+  outline: none;
+}
+
+.settings-header,
+.settings-footer {
+  flex: none;
+}
+
+.settings-header {
+  padding: 20px 22px 16px;
+}
+
+.settings-header p {
+  margin: 0 0 4px;
+  color: #737373;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.settings-body {
+  overflow: auto;
+  padding: 0 22px 8px;
+  overscroll-behavior: contain;
+}
+
+.settings-footer {
+  padding: 14px 22px 18px;
+}
+
+.settings-save {
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: #1a1a1a;
+  color: #f7f7f7;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.settings-save:hover,
+.settings-save:focus-visible {
+  background: #2a2a2a;
+}
+
+.settings-section + .settings-section {
+  margin-top: 18px;
+}
+
+.settings-section header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-section header p {
+  margin: 4px 0 10px;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.url-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 6%);
+}
+
+.url-row.is-lifted {
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 24px rgb(0 0 0 / 12%);
+  scale: 1.02;
+}
+
+.url-row input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 8px 8px 2px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 14px;
+}
+
+.url-row input::placeholder {
+  color: #9a9a9a;
+}
+
+.url-grip {
+  display: grid;
+  width: 28px;
+  height: 32px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a8a8a;
+  cursor: grab;
+  touch-action: none;
+}
+
+.url-grip:hover,
+.url-grip:focus-visible {
+  background: #f3f3f3;
+  color: #1a1a1a;
+}
+
+.url-grip.is-spacer {
+  cursor: default;
+}
+
+.url-grip.is-spacer:hover {
+  background: transparent;
+}
+
+.url-grip svg {
+  width: 12px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.settings-card {
+  padding: 4px 14px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 6%);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #d7d7d7;
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+  transition: transform 200ms ease;
+}
+
+.switch.is-on {
+  background: #1a1a1a;
+}
+
+.switch.is-on span {
+  transform: translateX(18px);
+}
+
+.duration-block {
+  padding: 2px 0 12px;
+  border-top: 1px solid rgb(0 0 0 / 6%);
+}
+
+.duration-block p {
+  margin: 12px 0 8px;
+  color: #666;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.duration-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.duration-options button {
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: #f3f3f3;
+  color: #1a1a1a;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.duration-options button:hover,
+.duration-options button:focus-visible {
+  background: #e7e7e7;
+}
+
+.duration-options button.is-selected {
+  background: #1a1a1a;
+  color: #f7f7f7;
+}
+
+.gallery {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.gallery-stage {
+  height: 100%;
+  transition: transform 480ms cubic-bezier(0.4, 0, 0.15, 1);
+}
+
+.gallery-stage.is-instant {
+  transition: none;
+}
+
+.gallery-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.gallery-image.is-ready {
+  opacity: 1;
+}
+
+.gallery-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 62%);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 10%),
+    0 4px 10px rgb(0 0 0 / 8%);
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+
+.gallery-arrow.is-prev {
+  left: 8px;
+}
+
+.gallery-arrow.is-next {
+  right: 8px;
+}
+
+.gallery-arrow svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .widget:hover .gallery-arrow {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .widget:hover .gallery-dots {
+    opacity: 1;
+  }
+}
+
+.gallery-dots {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  display: flex;
+  gap: 5px;
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.gallery-dots.is-on {
+  opacity: 1;
+}
+
+.gallery-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 55%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 25%);
+}
+
+.gallery-dots span.is-current {
+  background: #fff;
+  transform: scale(1.35);
 }
