@@ -3,6 +3,7 @@ import { rowsOnScreen } from "../grid/metrics"
 
 export const widgetTypeIds = [
   "image-gallery",
+  "video",
   "compact",
   "wide",
   "free",
@@ -54,6 +55,14 @@ export const catalog: WidgetType[] = [
     id: "image-gallery",
     name: "Image gallery",
     gray: "#d0d0d0",
+    size: { w: span(2, "screen"), h: span(2, "screen") },
+    sizeHint: "From 2×2 up to the screen",
+    preferred: { w: 4, h: 3 },
+  },
+  {
+    id: "video",
+    name: "Video",
+    gray: "#c4c4c4",
     size: { w: span(2, "screen"), h: span(2, "screen") },
     sizeHint: "From 2×2 up to the screen",
     preferred: { w: 4, h: 3 },

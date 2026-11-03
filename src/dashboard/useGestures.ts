@@ -8,6 +8,7 @@ import type { DashboardDocument, Widget } from "../model/document"
 import { canResize, defaultSize, screenLimits } from "../widgets/catalog"
 import type { WidgetTypeId } from "../widgets/catalog"
 import { defaultGallerySettings } from "../widgets/image-gallery/settings"
+import { defaultVideoSettings } from "../widgets/video/settings"
 import {
   createdRows,
   placeDragged,
@@ -917,7 +918,11 @@ export function useGestures(input: {
         h: size.h,
         x: cell.x,
         y: cell.y,
-        ...(type === "image-gallery" ? { settings: defaultGallerySettings() } : {}),
+        ...(type === "image-gallery"
+          ? { settings: defaultGallerySettings() }
+          : type === "video"
+            ? { settings: defaultVideoSettings() }
+            : {}),
       }
       const adapted = widgetsRef.current
       const edited = placeNew(adapted, widget, screen)

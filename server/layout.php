@@ -19,6 +19,7 @@ const WIDGET_TYPES = [
     'panorama',
     'banner',
     'image-gallery',
+    'video',
 ];
 
 const GALLERY_DURATIONS = [5, 10, 20, 30, 45, 60];
@@ -82,6 +83,22 @@ function sanitize_gallery_settings(mixed $settings): ?array
     ];
 }
 
+function sanitize_video_settings(mixed $settings): ?array
+{
+    if (!is_array($settings)) {
+        return null;
+    }
+    $url = $settings['url'] ?? '';
+    if (!is_string($url)) {
+        return null;
+    }
+    $trimmed = trim($url);
+    if (strlen($trimmed) > 2048) {
+        return null;
+    }
+    return ['url' => $trimmed];
+}
+
 function fail(int $status, string $error): void
 {
     http_response_code($status);
@@ -139,6 +156,13 @@ function sanitize_document(mixed $document): ?array
                 'slideshow' => false,
                 'duration' => 5,
             ]);
+            if ($settings === null) {
+                return null;
+            }
+            $stored['settings'] = $settings;
+        }
+        if ($type === 'video') {
+            $settings = sanitize_video_settings($widget['settings'] ?? ['url' => '']);
             if ($settings === null) {
                 return null;
             }

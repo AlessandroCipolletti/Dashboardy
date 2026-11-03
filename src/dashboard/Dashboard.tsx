@@ -32,6 +32,9 @@ import { WidgetSettingsDialog } from "./WidgetSettingsDialog"
 import { ImageGallery } from "../widgets/image-gallery/ImageGallery"
 import { GallerySettingsForm } from "../widgets/image-gallery/GallerySettingsForm"
 import { gallerySettings, type GallerySettings } from "../widgets/image-gallery/settings"
+import { VideoWidget } from "../widgets/video/VideoWidget"
+import { VideoSettingsForm } from "../widgets/video/VideoSettingsForm"
+import { videoSettings, type VideoSettings } from "../widgets/video/settings"
 
 const EXIT_FADE_MS = 300
 
@@ -50,7 +53,10 @@ type ExitSnapshot = {
     br: { width: boolean; height: boolean }
   }
   edgeLimit?: { left: boolean; right: boolean; bottom: boolean }
-  gallery: GallerySettings | null
+  view:
+    | { type: "image-gallery"; settings: GallerySettings }
+    | { type: "video"; settings: VideoSettings }
+    | null
   style: CSSProperties
 }
 
@@ -129,17 +135,27 @@ export function Dashboard() {
     openSettingsRef,
   })
   const [settingsId, setSettingsId] = useState<string | null>(null)
-  const [settingsDraft, setSettingsDraft] = useState<GallerySettings | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState<
+    GallerySettings | VideoSettings | null
+  >(null)
   useLayoutEffect(() => {
     openSettingsRef.current = (id: string) => {
       const widget = document.widgets.find((item) => item.id === id)
-      if (!widget || widget.type !== "image-gallery") return
-      setSettingsId(id)
-      setSettingsDraft(gallerySettings(widget.settings))
+      if (!widget) return
+      if (widget.type === "image-gallery") {
+        setSettingsId(id)
+        setSettingsDraft(gallerySettings(widget.settings))
+        return
+      }
+      if (widget.type === "video") {
+        setSettingsId(id)
+        setSettingsDraft(videoSettings(widget.settings))
+      }
     }
   }, [document.widgets])
   const settingsWidget = document.widgets.find(
-    (item) => item.id === settingsId && item.type === "image-gallery",
+    (item) =>
+      item.id === settingsId && (item.type === "image-gallery" || item.type === "video"),
   )
 
   const columns = metrics.columns
@@ -434,7 +450,12 @@ export function Dashboard() {
             bottom: atHeight,
           }
         : undefined,
-      gallery: widget.type === "image-gallery" ? gallerySettings(widget.settings) : null,
+      view:
+        widget.type === "image-gallery"
+          ? { type: "image-gallery", settings: gallerySettings(widget.settings) }
+          : widget.type === "video"
+            ? { type: "video", settings: videoSettings(widget.settings) }
+            : null,
       style: {
         ...rect,
         borderRadius: metrics.radius,
@@ -500,19 +521,19 @@ export function Dashboard() {
           axes={card.axes}
           edgeLimit={fading ? undefined : card.edgeLimit}
           leaving={fading}
-          hasSettings={!!card.gallery}
+          hasSettings={!!card.view}
           style={card.style}
         >
-          {card.gallery ? (
+          {card.view?.type === "image-gallery" ? (
             <ImageGallery
               id={card.id}
-              urls={card.gallery.urls}
-              index={card.gallery.index}
-              slideshow={card.gallery.slideshow}
-              duration={card.gallery.duration}
+              urls={card.view.settings.urls}
+              index={card.view.settings.index}
+              slideshow={card.view.settings.slideshow}
+              duration={card.view.settings.duration}
               paused={fading || settingsId === card.id || card.lifting || card.resizing}
               onIndex={(index) => {
-                if (fading || index === card.gallery?.index) return
+                if (fading) return
                 commit((current) => ({
                   ...current,
                   widgets: current.widgets.map((widget) => {
@@ -526,6 +547,9 @@ export function Dashboard() {
               }}
             />
           ) : null}
+          {card.view?.type === "video" ? (
+            <VideoWidget url={card.view.settings.url} />
+          ) : null}
         </WidgetCard>
       ))}
       {gestures.menu ? (
@@ -537,31 +561,43 @@ export function Dashboard() {
       ) : null}
       {settingsWidget && settingsDraft ? (
         <WidgetSettingsDialog
-          title={widgetType("image-gallery").name}
+          title={widgetType(settingsWidget.type).name}
           onClose={() => {
             setSettingsId(null)
             setSettingsDraft(null)
           }}
           onSave={() => {
-            const saved = gallerySettings(settingsDraft)
             const id = settingsId
+            const saved =
+              settingsWidget.type === "image-gallery"
+                ? gallerySettings(settingsDraft)
+                : videoSettings(settingsDraft)
             setSettingsId(null)
             setSettingsDraft(null)
             commit((current) => ({
               ...current,
               widgets: current.widgets.map((widget) =>
-                widget.id === id && widget.type === "image-gallery"
+                widget.id === id && widget.type === settingsWidget.type
                   ? { ...widget, settings: saved }
                   : widget,
               ),
             }))
           }}
         >
-          <GallerySettingsForm
-            key={settingsId}
-            initial={settingsDraft}
-            onChange={setSettingsDraft}
-          />
+          {settingsWidget.type === "image-gallery" && "urls" in settingsDraft ? (
+            <GallerySettingsForm
+              key={settingsId}
+              initial={settingsDraft}
+              onChange={setSettingsDraft}
+            />
+          ) : null}
+          {settingsWidget.type === "video" && "url" in settingsDraft ? (
+            <VideoSettingsForm
+              key={settingsId}
+              initial={settingsDraft.url}
+              onChange={(url) => setSettingsDraft({ url })}
+            />
+          ) : null}
         </WidgetSettingsDialog>
       ) : null}
     </main>

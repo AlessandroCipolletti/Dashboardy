@@ -3,6 +3,7 @@ import {
   isGallerySettings,
   type GallerySettings,
 } from "../widgets/image-gallery/settings"
+import { isVideoSettings, type VideoSettings } from "../widgets/video/settings"
 
 export type Widget = {
   id: string
@@ -11,7 +12,7 @@ export type Widget = {
   h: number
   x: number
   y: number
-  settings?: GallerySettings
+  settings?: GallerySettings | VideoSettings
 }
 
 export type DashboardDocument = {
@@ -109,7 +110,8 @@ export function isDocument(value: unknown): value is DashboardDocument {
       widget.x <= 400 &&
       widget.y <= 400 &&
       (widget.settings === undefined ||
-        (widget.type === "image-gallery" && isGallerySettings(widget.settings)))
+        (widget.type === "image-gallery" && isGallerySettings(widget.settings)) ||
+        (widget.type === "video" && isVideoSettings(widget.settings)))
     )
   })
 }
